@@ -200,12 +200,14 @@ class Engine:
         def _not(goal, rest, subst, depth, on_sol):
             inner = deep_walk(goal[2][0], subst)
             found = [False]
+            saved_vc = eng._var_counter
             def check(s):
                 found[0] = True
             try:
                 eng._solve([inner], subst, depth + 1, check)
             except _Found:
                 found[0] = True
+            eng._var_counter = saved_vc
             if not found[0]:
                 eng._solve(rest, subst, depth + 1, on_sol)
         self.builtins["not/1"] = _not
@@ -381,9 +383,11 @@ class Engine:
             query_goal = deep_walk(goal[2][1], subst)
             bag = goal[2][2]
             results = []
+            saved_vc = eng._var_counter
             def collect(s):
                 results.append(deep_walk(template, s))
             eng._solve([query_goal], subst, depth + 1, collect)
+            eng._var_counter = saved_vc
             s = unify(bag, lst(results), subst)
             if s is not None:
                 eng._solve(rest, s, depth + 1, on_sol)

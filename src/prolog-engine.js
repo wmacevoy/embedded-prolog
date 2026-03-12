@@ -190,7 +190,9 @@ PrologEngine.prototype._registerBuiltins = function() {
   this.builtins["not/1"] = function(goal, rest, subst, counter, depth, onSolution) {
     var inner = self.deepWalk(goal.args[0], subst);
     var found = false;
+    var savedN = counter.n;
     self.solve([inner], subst, counter, depth + 1, function() { found = true; });
+    counter.n = savedN;
     if (!found) self.solve(rest, subst, counter, depth + 1, onSolution);
   };
   this.builtins["\\+/1"] = this.builtins["not/1"];
@@ -344,9 +346,11 @@ PrologEngine.prototype._registerBuiltins = function() {
     var qGoal = self.deepWalk(goal.args[1], subst);
     var bag = goal.args[2];
     var results = [];
+    var savedN = counter.n;
     self.solve([qGoal], subst, counter, depth + 1, function(s) {
       results.push(self.deepWalk(template, s));
     });
+    counter.n = savedN;
     var s = self.unify(bag, PrologEngine.list(results), subst);
     if (s !== null) self.solve(rest, s, counter, depth + 1, onSolution);
   };
