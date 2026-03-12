@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prolog Form Validator</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --cream: #faf6f0;
+  --paper: #f5efe6;
+  --paper-deep: #ede4d4;
+  --ink: #2c2418;
+  --ink-light: #5c4f3d;
+  --ink-faint: #a89a84;
+  --ink-ghost: #d4cab8;
+  --warm: #c4713b;
+  --warm-light: #e8a46c;
+  --warm-glow: rgba(196,113,59,0.12);
+  --warm-pale: rgba(196,113,59,0.06);
+  --green: #4a7a52;
+  --green-light: #6fa877;
+  --green-glow: rgba(74,122,82,0.1);
+  --green-pale: rgba(74,122,82,0.06);
+  --red: #b44a3f;
+  --red-light: #d4756a;
+  --red-glow: rgba(180,74,63,0.08);
+  --blue: #4a6a8a;
+  --blue-light: #7a9ab4;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(44,36,24,0.06), 0 6px 16px rgba(44,36,24,0.04);
+  --shadow-lifted: 0 2px 8px rgba(44,36,24,0.08), 0 12px 28px rgba(44,36,24,0.06);
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px 80px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle paper texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.75' numOctaves='4' type='fractalNoise'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 540px;
+}
+
+/* Header */
+.header {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.header h1 {
+  font-family: 'Libre Baskerville', serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.header p {
+  font-size: 15px;
+  color: var(--ink-faint);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.header .prolog-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 4px 12px;
+  background: var(--warm-pale);
+  border: 1px solid rgba(196,113,59,0.12);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Form card */
+.form-card {
+  background: white;
+  border: 1px solid var(--paper-deep);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.3s ease;
+}
+
+/* Field groups */
+.field {
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+
+.field-label label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-light);
+  letter-spacing: 0.02em;
+}
+
+.field-label .field-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+.field-label .field-status.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.field-label .field-status.valid {
+  background: var(--green-pale);
+  color: var(--green);
+}
+
+.field-label .field-status.invalid {
+  background: var(--red-glow);
+  color: var(--red);
+}
+
+/* Input styling */
+.field input, .field select {
+  width: 100%;
+  padding: 12px 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--cream);
+  border: 1.5px solid var(--ink-ghost);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s, transform 0.1s;
+}
+
+.field input::placeholder {
+  color: var(--ink-ghost);
+}
+
+.field input:focus, .field select:focus {
+  border-color: var(--warm-light);
+  box-shadow: 0 0 0 3px var(--warm-glow);
+  background: white;
+}
+
+.field input.valid {
+  border-color: var(--green-light);
+  background: rgba(74,122,82,0.02);
+}
+
+.field input.valid:focus {
+  box-shadow: 0 0 0 3px var(--green-glow);
+}
+
+.field input.invalid {
+  border-color: var(--red-light);
+  background: rgba(180,74,63,0.02);
+}
+
+.field input.invalid:focus {
+  box-shadow: 0 0 0 3px var(--red-glow);
+}
+
+.field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a89a84' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+/* Hint message */
+.hint {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  min-height: 18px;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.hint.active {
+  color: var(--warm);
+}
+
+.hint.success {
+  color: var(--green);
+}
+
+.hint .hint-icon {
+  display: inline;
+  margin-right: 3px;
+}
+
+/* Jostle animation */
+@keyframes jostle {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(5px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
+}
+
+.jostle {
+  animation: jostle 0.5s ease;
+}
+
+/* Password strength meter */
+.strength-meter {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  height: 3px;
+}
+
+.strength-bar {
+  flex: 1;
+  border-radius: 2px;
+  background: var(--paper-deep);
+  transition: background 0.3s ease, transform 0.2s ease;
+}
+
+.strength-bar.filled {
+  transform: scaleY(1.3);
+}
+
+.strength-bar.weak { background: var(--red); }
+.strength-bar.medium { background: var(--warm); }
+.strength-bar.strong { background: var(--green-light); }
+.strength-bar.very-strong { background: var(--green); }
+
+/* Row layout */
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* Submit button */
+.submit-area {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  letter-spacing: 0.02em;
+}
+
+.submit-btn:not(:disabled) {
+  background: var(--warm);
+  color: white;
+  box-shadow: 0 2px 8px rgba(196,113,59,0.25);
+}
+
+.submit-btn:not(:disabled):hover {
+  background: #b5632f;
+  box-shadow: 0 4px 16px rgba(196,113,59,0.3);
+  transform: translateY(-1px);
+}
+
+.submit-btn:not(:disabled):active {
+  transform: translateY(0);
+}
+
+.submit-btn:disabled {
+  background: var(--paper-deep);
+  color: var(--ink-ghost);
+  cursor: default;
+}
+
+.submit-hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+  min-height: 16px;
+}
+
+/* Success state */
+@keyframes celebrate {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.form-card.success {
+  border-color: var(--green-light);
+  box-shadow: 0 0 0 2px var(--green-glow), var(--shadow-lifted);
+  animation: celebrate 0.4s ease;
+}
+
+/* Inference log (collapsible) */
+.log-toggle {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.log-toggle button {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: none;
+  border: 1px solid var(--ink-ghost);
+  border-radius: 20px;
+  padding: 5px 14px;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: all 0.2s;
+}
+
+.log-toggle button:hover {
+  color: var(--warm);
+  border-color: var(--warm-light);
+}
+
+.log-panel {
+  margin-top: 12px;
+  background: var(--paper);
+  border: 1px solid var(--paper-deep);
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.log-entry {
+  padding: 4px 14px;
+  font-family: 'DM Mono', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  border-bottom: 1px solid rgba(212,202,184,0.4);
+  color: var(--ink-faint);
+}
+
+.log-entry.query { color: var(--blue); }
+.log-entry.pass { color: var(--green); }
+.log-entry.fail { color: var(--red-light); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+
+// ══════════════════════════════════════════════════════════════
+// PROLOG ENGINE (inlined, same CPS engine from prolog-quickjs)
+// ══════════════════════════════════════════════════════════════
+
+class PrologEngine{constructor(){this.clauses=[];this.builtins={};this._registerBuiltins()}
+static atom(n){return{type:"atom",name:n}}static variable(n){return{type:"var",name:n}}static compound(f,a){return{type:"compound",functor:f,args:a}}static num(n){return{type:"num",value:n}}
+static list(items,tail){var l=tail||PrologEngine.atom("[]");for(var i=items.length-1;i>=0;i--)l=PrologEngine.compound(".",[items[i],l]);return l}
+walk(t,s){while(t&&t.type==="var"&&s.has(t.name))t=s.get(t.name);return t}
+deepWalk(t,s){t=this.walk(t,s);if(!t)return t;if(t.type==="compound"){var a=[];for(var i=0;i<t.args.length;i++)a.push(this.deepWalk(t.args[i],s));return PrologEngine.compound(t.functor,a)}return t}
+unify(a,b,s){a=this.walk(a,s);b=this.walk(b,s);if(!a||!b)return null;if(a.type==="var"){var r=new Map(s);r.set(a.name,b);return r}if(b.type==="var"){var r=new Map(s);r.set(b.name,a);return r}if(a.type==="atom"&&b.type==="atom"&&a.name===b.name)return s;if(a.type==="num"&&b.type==="num"&&a.value===b.value)return s;if(a.type==="compound"&&b.type==="compound"&&a.functor===b.functor&&a.args.length===b.args.length){var r=s;for(var i=0;i<a.args.length;i++){r=this.unify(a.args[i],b.args[i],r);if(r===null)return null}return r}return null}
+addClause(h,b){this.clauses.push({head:h,body:b||[]})}
+retractFirst(h){for(var i=0;i<this.clauses.length;i++){var f=this._freshVars(this.clauses[i],{n:9000});if(this.unify(h,f.head,new Map())!==null){this.clauses.splice(i,1);return true}}return false}
+_freshVars(cl,ctr){var m={};function r(t){if(!t)return t;if(t.type==="var"){if(!m[t.name])m[t.name]=PrologEngine.variable("_V"+(ctr.n++));return m[t.name]}if(t.type==="compound"){var a=[];for(var i=0;i<t.args.length;i++)a.push(r(t.args[i]));return PrologEngine.compound(t.functor,a)}return t}var nb=[];for(var i=0;i<cl.body.length;i++)nb.push(r(cl.body[i]));return{head:r(cl.head),body:nb}}
+solve(goals,subst,counter,depth,onSolution){if(depth>300)return;if(goals.length===0){onSolution(subst);return}var goal=goals[0],rest=goals.slice(1),resolved=this.deepWalk(goal,subst);var key=resolved.type==="compound"?resolved.functor+"/"+resolved.args.length:resolved.type==="atom"?resolved.name+"/0":null;if(key&&this.builtins[key]){this.builtins[key](resolved,rest,subst,counter,depth,onSolution);return}for(var i=0;i<this.clauses.length;i++){var fresh=this._freshVars(this.clauses[i],counter);var s=this.unify(resolved,fresh.head,subst);if(s!==null)this.solve(fresh.body.concat(rest),s,counter,depth+1,onSolution)}}
+query(goal,limit){var max=limit||50,counter={n:0},results=[],self=this;this.solve([goal],new Map(),counter,0,function(s){results.push(self.deepWalk(goal,s))});return results.slice(0,max)}
+queryFirst(goal){var counter={n:0},self=this,FOUND={};try{this.solve([goal],new Map(),counter,0,function(s){FOUND.result=self.deepWalk(goal,s);throw FOUND})}catch(e){if(e===FOUND)return FOUND.result;throw e}return null}
+_registerBuiltins(){var self=this;
+this.builtins["not/1"]=function(g,r,s,c,d,cb){var inner=self.deepWalk(g.args[0],s),found=false;self.solve([inner],s,c,d+1,function(){found=true});if(!found)self.solve(r,s,c,d+1,cb)};
+this.builtins["\\+/1"]=this.builtins["not/1"];
+this.builtins["=/2"]=function(g,r,s,c,d,cb){var u=self.unify(g.args[0],g.args[1],s);if(u!==null)self.solve(r,u,c,d+1,cb)};
+this.builtins["\\=/2"]=function(g,r,s,c,d,cb){if(self.unify(g.args[0],g.args[1],s)===null)self.solve(r,s,c,d+1,cb)};
+this.builtins["member/2"]=function(g,r,s,c,d,cb){var el=g.args[0],li=self.deepWalk(g.args[1],s);while(li&&li.type==="compound"&&li.functor==="."&&li.args.length===2){var u=self.unify(el,li.args[0],s);if(u!==null)self.solve(r,u,c,d+1,cb);li=self.deepWalk(li.args[1],s)}};
+this.builtins["true/0"]=function(g,r,s,c,d,cb){self.solve(r,s,c,d+1,cb)};
+this.builtins["fail/0"]=function(){};
+this.builtins[",/2"]=function(g,r,s,c,d,cb){self.solve([g.args[0],g.args[1]].concat(r),s,c,d+1,cb)};
+this.builtins[";/2"]=function(g,r,s,c,d,cb){var l=self.deepWalk(g.args[0],s),ri=self.deepWalk(g.args[1],s);if(l.type==="compound"&&l.functor==="->"&&l.args.length===2){var f=false;self.solve([l.args[0]],s,c,d+1,function(u){if(!f){f=true;self.solve([l.args[1]].concat(r),u,c,d+1,cb)}});if(!f)self.solve([ri].concat(r),s,c,d+1,cb)}else{self.solve([l].concat(r),s,c,d+1,cb);self.solve([ri].concat(r),s,c,d+1,cb)}};
+this.builtins["->/2"]=function(g,r,s,c,d,cb){var f=false;self.solve([g.args[0]],s,c,d+1,function(u){if(!f){f=true;self.solve([g.args[1]].concat(r),u,c,d+1,cb)}})};
+this.builtins["is/2"]=function(g,r,s,c,d,cb){var lhs=g.args[0],rhs=self.deepWalk(g.args[1],s),val=ev(rhs);if(val!==null){var u=self.unify(lhs,PrologEngine.num(val),s);if(u!==null)self.solve(r,u,c,d+1,cb)}};
+for(var p of [[">/2",(a,b)=>a>b],["</2",(a,b)=>a<b],[">=/2",(a,b)=>a>=b],["=</2",(a,b)=>a<=b],["=:=/2",(a,b)=>a===b],["=\\=/2",(a,b)=>a!==b]]){(function(op,fn){self.builtins[op]=function(g,r,s,c,d,cb){var a=ev(self.deepWalk(g.args[0],s)),b=ev(self.deepWalk(g.args[1],s));if(a!==null&&b!==null&&fn(a,b))self.solve(r,s,c,d+1,cb)}})(p[0],p[1])}
+this.builtins["==/2"]=function(g,r,s,c,d,cb){if(teq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))self.solve(r,s,c,d+1,cb)};
+this.builtins["\\==/2"]=function(g,r,s,c,d,cb){if(!teq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))self.solve(r,s,c,d+1,cb)};
+this.builtins["assert/1"]=function(g,r,s,c,d,cb){self.clauses.push({head:self.deepWalk(g.args[0],s),body:[]});self.solve(r,s,c,d+1,cb)};
+this.builtins["assertz/1"]=this.builtins["assert/1"];
+this.builtins["retract/1"]=function(g,r,s,c,d,cb){if(self.retractFirst(self.deepWalk(g.args[0],s)))self.solve(r,s,c,d+1,cb)};
+this.builtins["findall/3"]=function(g,r,s,c,d,cb){var tmpl=g.args[0],qg=self.deepWalk(g.args[1],s),bag=g.args[2],res=[];self.solve([qg],s,c,d+1,function(u){res.push(self.deepWalk(tmpl,u))});var u2=self.unify(bag,PrologEngine.list(res),s);if(u2!==null)self.solve(r,u2,c,d+1,cb)};
+function ev(t){if(!t)return null;if(t.type==="num")return t.value;if(t.type!=="compound")return null;var f=t.functor,a=t.args;if(f==="+"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x+y:null}if(f==="-"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x-y:null}if(f==="*"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x*y:null}return null}
+function teq(a,b){if(!a||!b||a.type!==b.type)return false;if(a.type==="atom")return a.name===b.name;if(a.type==="num")return a.value===b.value;if(a.type==="compound"){if(a.functor!==b.functor||a.args.length!==b.args.length)return false;for(var i=0;i<a.args.length;i++)if(!teq(a.args[i],b.args[i]))return false;return true}return false}
+}}
+function listToArray(t){var r=[];while(t&&t.type==="compound"&&t.functor==="."&&t.args.length===2){r.push(t.args[0]);t=t.args[1]}return r}
+
+const P=PrologEngine, at=P.atom, v=P.variable, c=P.compound, n=P.num;
+
+// ══════════════════════════════════════════════════════════════
+// FORM VALIDATION KNOWLEDGE BASE
+// ══════════════════════════════════════════════════════════════
+
+function buildFormKB() {
+  const e = new PrologEngine();
+
+  // ── Field value storage (dynamic) ─────────────────────────
+  // field(Name, Value) — updated on every keystroke
+  for (const name of ["name","email","password","confirm","phone","country","zip"])
+    e.addClause(c("field", [at(name), at("")]));
+
+  // ── Touched tracking ──────────────────────────────────────
+  // touched(Name) — asserted when user has interacted with field
+
+  // ── Validation rules ──────────────────────────────────────
+
+  // valid(name) :- field(name, V), str_len(V, L), L >= 2.
+  e.addClause(c("valid", [at("name")]), [
+    c("field", [at("name"), v("V")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">=", [v("L"), n(2)])
+  ]);
+
+  // valid(email) :- field(email, V), str_contains(V, "@"), str_contains(V, "."), str_len(V, L), L >= 5.
+  e.addClause(c("valid", [at("email")]), [
+    c("field", [at("email"), v("V")]),
+    c("str_contains", [v("V"), at("@")]),
+    c("str_contains", [v("V"), at(".")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">=", [v("L"), n(5)])
+  ]);
+
+  // Password: at least 8 chars
+  e.addClause(c("valid", [at("password")]), [
+    c("field", [at("password"), v("V")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">=", [v("L"), n(8)])
+  ]);
+
+  // Confirm matches password
+  e.addClause(c("valid", [at("confirm")]), [
+    c("field", [at("password"), v("P")]),
+    c("field", [at("confirm"), v("C")]),
+    c("==", [v("P"), v("C")]),
+    c("str_len", [v("C"), v("L")]),
+    c(">", [v("L"), n(0)])
+  ]);
+
+  // Phone: at least 7 digits
+  e.addClause(c("valid", [at("phone")]), [
+    c("field", [at("phone"), v("V")]),
+    c("str_digits", [v("V"), v("D")]),
+    c(">=", [v("D"), n(7)])
+  ]);
+
+  // Country: not empty
+  e.addClause(c("valid", [at("country")]), [
+    c("field", [at("country"), v("V")]),
+    c("\\=", [v("V"), at("")])
+  ]);
+
+  // Zip: depends on country
+  e.addClause(c("valid", [at("zip")]), [
+    c("field", [at("country"), at("us")]),
+    c("field", [at("zip"), v("V")]),
+    c("str_digits", [v("V"), v("D")]),
+    c("=:=", [v("D"), n(5)])
+  ]);
+  e.addClause(c("valid", [at("zip")]), [
+    c("field", [at("country"), at("uk")]),
+    c("field", [at("zip"), v("V")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">=", [v("L"), n(5)])
+  ]);
+  e.addClause(c("valid", [at("zip")]), [
+    c("field", [at("country"), at("ca")]),
+    c("field", [at("zip"), v("V")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">=", [v("L"), n(6)])
+  ]);
+  e.addClause(c("valid", [at("zip")]), [
+    c("field", [at("country"), at("de")]),
+    c("field", [at("zip"), v("V")]),
+    c("str_digits", [v("V"), v("D")]),
+    c("=:=", [v("D"), n(5)])
+  ]);
+  // Other countries: just non-empty
+  e.addClause(c("valid", [at("zip")]), [
+    c("field", [at("country"), v("C")]),
+    c("\\=", [v("C"), at("us")]),
+    c("\\=", [v("C"), at("uk")]),
+    c("\\=", [v("C"), at("ca")]),
+    c("\\=", [v("C"), at("de")]),
+    c("field", [at("zip"), v("V")]),
+    c("str_len", [v("V"), v("L")]),
+    c(">", [v("L"), n(0)])
+  ]);
+
+  // ── Password strength ─────────────────────────────────────
+  // pw_strength(Level) — 0-4
+
+  e.addClause(c("pw_has_upper", []), [c("field", [at("password"), v("V")]), c("str_has_upper", [v("V")])]);
+  e.addClause(c("pw_has_lower", []), [c("field", [at("password"), v("V")]), c("str_has_lower", [v("V")])]);
+  e.addClause(c("pw_has_digit", []), [c("field", [at("password"), v("V")]), c("str_has_digit", [v("V")])]);
+  e.addClause(c("pw_has_special", []), [c("field", [at("password"), v("V")]), c("str_has_special", [v("V")])]);
+  e.addClause(c("pw_long", []), [c("field", [at("password"), v("V")]), c("str_len", [v("V"), v("L")]), c(">=", [v("L"), n(12)])]);
+
+  // Count features
+  e.addClause(c("pw_feature_count", [v("N")]), [
+    c("findall", [at("x"),
+      c(";", [c("pw_has_upper",[]), c(";", [c("pw_has_lower",[]), c(";", [c("pw_has_digit",[]), c(";", [c("pw_has_special",[]), c("pw_long",[])])])])]),
+      v("Bag")]),
+    c("list_length", [v("Bag"), v("N")])
+  ]);
+
+  // ── Hints (clause order = priority) ───────────────────────
+
+  // Name hints
+  e.addClause(c("hint", [at("name"), at("What should we call you?")]),
+    [c("field", [at("name"), at("")])]);
+  e.addClause(c("hint", [at("name"), at("Just a bit more...")]),
+    [c("field", [at("name"), v("V")]), c("str_len", [v("V"), v("L")]), c("<", [v("L"), n(2)])]);
+
+  // Email hints
+  e.addClause(c("hint", [at("email"), at("We'll keep it safe, promise")]),
+    [c("field", [at("email"), at("")])]);
+  e.addClause(c("hint", [at("email"), at("Needs an @ and a dot")]),
+    [c("field", [at("email"), v("V")]), c("not", [c("str_contains", [v("V"), at("@")])])]);
+  e.addClause(c("hint", [at("email"), at("Almost — needs a domain after @")]),
+    [c("field", [at("email"), v("V")]), c("str_contains", [v("V"), at("@")]), c("not", [c("str_contains", [v("V"), at(".")])])]);
+
+  // Password hints
+  e.addClause(c("hint", [at("password"), at("8+ characters — make it a good one")]),
+    [c("field", [at("password"), at("")])]);
+  e.addClause(c("hint", [at("password"), at("Keep going...")]),
+    [c("field", [at("password"), v("V")]), c("str_len", [v("V"), v("L")]), c("<", [v("L"), n(8)])]);
+  e.addClause(c("hint", [at("password"), at("Try adding a number")]),
+    [c("valid", [at("password")]), c("not", [c("pw_has_digit", [])])]);
+  e.addClause(c("hint", [at("password"), at("A special character would make this even stronger")]),
+    [c("valid", [at("password")]), c("pw_has_digit", []), c("not", [c("pw_has_special", [])])]);
+  e.addClause(c("hint", [at("password"), at("Excellent — that's a strong password")]),
+    [c("valid", [at("password")]), c("pw_has_digit", []), c("pw_has_special", [])]);
+
+  // Confirm hints
+  e.addClause(c("hint", [at("confirm"), at("Type your password again")]),
+    [c("field", [at("confirm"), at("")])]);
+  e.addClause(c("hint", [at("confirm"), at("Doesn't match yet...")]),
+    [c("field", [at("password"), v("P")]), c("field", [at("confirm"), v("C")]),
+     c("\\==", [v("P"), v("C")]), c("str_len", [v("C"), v("L")]), c(">", [v("L"), n(0)])]);
+
+  // Phone hints
+  e.addClause(c("hint", [at("phone"), at("Any format works — we just need the digits")]),
+    [c("field", [at("phone"), at("")])]);
+  e.addClause(c("hint", [at("phone"), at("Need a few more digits")]),
+    [c("field", [at("phone"), v("V")]), c("str_digits", [v("V"), v("D")]), c("<", [v("D"), n(7)])]);
+
+  // Zip hints (country-dependent!)
+  e.addClause(c("hint", [at("zip"), at("5-digit ZIP code")]),
+    [c("field", [at("country"), at("us")]), c("not", [c("valid", [at("zip")])])]);
+  e.addClause(c("hint", [at("zip"), at("UK postcode, e.g. SW1A 1AA")]),
+    [c("field", [at("country"), at("uk")]), c("not", [c("valid", [at("zip")])])]);
+  e.addClause(c("hint", [at("zip"), at("Canadian postal code, e.g. K1A 0B1")]),
+    [c("field", [at("country"), at("ca")]), c("not", [c("valid", [at("zip")])])]);
+  e.addClause(c("hint", [at("zip"), at("5-digit Postleitzahl")]),
+    [c("field", [at("country"), at("de")]), c("not", [c("valid", [at("zip")])])]);
+  e.addClause(c("hint", [at("zip"), at("Enter your postal code")]),
+    [c("not", [c("valid", [at("zip")])])]);
+
+  // ── Form readiness ────────────────────────────────────────
+
+  e.addClause(c("all_valid", []), [
+    c("valid", [at("name")]),  c("valid", [at("email")]),
+    c("valid", [at("password")]), c("valid", [at("confirm")]),
+    c("valid", [at("phone")]), c("valid", [at("country")]),
+    c("valid", [at("zip")]),
+  ]);
+
+  e.addClause(c("invalid_fields", [v("F")]), [
+    c("findall", [v("X"),
+      c(";", [
+        c(",", [c("member", [v("X"), P.list([at("name"),at("email"),at("password"),at("confirm"),at("phone"),at("country"),at("zip")])]),
+                c("not", [c("valid", [v("X")])])]),
+        c("fail", [])
+      ]),
+      v("F")
+    ])
+  ]);
+
+  // ── Custom string builtins ────────────────────────────────
+
+  e.builtins["str_len/2"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type !== "atom") return;
+    var u = e.unify(g.args[1], P.num(t.name.length), s);
+    if (u !== null) e.solve(r, u, ctr, d+1, cb);
+  };
+
+  e.builtins["str_contains/2"] = function(g,r,s,ctr,d,cb) {
+    var str = e.deepWalk(g.args[0], s);
+    var sub = e.deepWalk(g.args[1], s);
+    if (str.type === "atom" && sub.type === "atom" && str.name.indexOf(sub.name) >= 0)
+      e.solve(r, s, ctr, d+1, cb);
+  };
+
+  e.builtins["str_digits/2"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type !== "atom") return;
+    var count = 0;
+    for (var i = 0; i < t.name.length; i++) if (t.name[i] >= '0' && t.name[i] <= '9') count++;
+    var u = e.unify(g.args[1], P.num(count), s);
+    if (u !== null) e.solve(r, u, ctr, d+1, cb);
+  };
+
+  e.builtins["str_has_upper/1"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type === "atom" && /[A-Z]/.test(t.name)) e.solve(r, s, ctr, d+1, cb);
+  };
+  e.builtins["str_has_lower/1"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type === "atom" && /[a-z]/.test(t.name)) e.solve(r, s, ctr, d+1, cb);
+  };
+  e.builtins["str_has_digit/1"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type === "atom" && /[0-9]/.test(t.name)) e.solve(r, s, ctr, d+1, cb);
+  };
+  e.builtins["str_has_special/1"] = function(g,r,s,ctr,d,cb) {
+    var t = e.deepWalk(g.args[0], s);
+    if (t.type === "atom" && /[^A-Za-z0-9]/.test(t.name)) e.solve(r, s, ctr, d+1, cb);
+  };
+  e.builtins["list_length/2"] = function(g,r,s,ctr,d,cb) {
+    var lst = e.deepWalk(g.args[0], s);
+    var items = listToArray(lst);
+    var u = e.unify(g.args[1], P.num(items.length), s);
+    if (u !== null) e.solve(r, u, ctr, d+1, cb);
+  };
+
+  return e;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SOLID APP
+// ══════════════════════════════════════════════════════════════
+
+import { createSignal, createMemo, createEffect } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+function App() {
+  const engine = buildFormKB();
+  const [gen, setGen] = createSignal(0);
+  const bump = () => setGen(g => g + 1);
+
+  // Field values as signals
+  const fields = {};
+  const touched = {};
+  const jostling = {};
+  for (const name of ["name","email","password","confirm","phone","country","zip"]) {
+    fields[name] = createSignal("");
+    touched[name] = createSignal(false);
+    jostling[name] = createSignal(false);
+  }
+
+  const [submitted, setSubmitted] = createSignal(false);
+  const [showLog, setShowLog] = createSignal(false);
+  const [log, setLog] = createSignal([]);
+  const addLog = (msg, type) => setLog(prev => [...prev.slice(-40), {msg, type}]);
+
+  // Update Prolog DB on field change
+  function updateField(name, value) {
+    fields[name][1](value);
+    engine.retractFirst(c("field", [at(name), v("_")]));
+    engine.addClause(c("field", [at(name), at(value)]));
+    bump();
+  }
+
+  function touchField(name) {
+    touched[name][1](true);
+  }
+
+  // Reactive queries
+  function fieldValid(name) {
+    return createMemo(() => {
+      gen();
+      return engine.queryFirst(c("valid", [at(name)])) !== null;
+    });
+  }
+
+  function fieldHint(name) {
+    return createMemo(() => {
+      gen();
+      const r = engine.queryFirst(c("hint", [at(name), v("H")]));
+      return r ? r.args[1].name : "";
+    });
+  }
+
+  const validMemos = {};
+  const hintMemos = {};
+  for (const name of ["name","email","password","confirm","phone","country","zip"]) {
+    validMemos[name] = fieldValid(name);
+    hintMemos[name] = fieldHint(name);
+  }
+
+  const allValid = createMemo(() => {
+    gen();
+    return engine.queryFirst(c("all_valid", [])) !== null;
+  });
+
+  // Password strength
+  const pwStrength = createMemo(() => {
+    gen();
+    const pw = fields.password[0]();
+    if (!pw) return 0;
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    return score;
+  });
+
+  // Submit hint
+  const submitHint = createMemo(() => {
+    gen();
+    if (allValid()) return "All fields look great!";
+    const r = engine.queryFirst(c("invalid_fields", [v("F")]));
+    if (!r) return "";
+    const invalid = listToArray(r.args[0]).map(t => t.name);
+    if (invalid.length === 1) return `Just the ${fmtName(invalid[0])} field to go`;
+    if (invalid.length <= 3) return `${invalid.slice(0,-1).map(fmtName).join(", ")} and ${fmtName(invalid[invalid.length-1])} still need attention`;
+    return `${invalid.length} fields still need attention`;
+  });
+
+  function fmtName(n) {
+    return {name:"name",email:"email",password:"password",confirm:"confirmation",phone:"phone",country:"country",zip:"postal code"}[n] || n;
+  }
+
+  // Jostle animation
+  function jostle(name) {
+    jostling[name][1](true);
+    setTimeout(() => jostling[name][1](false), 500);
+  }
+
+  function handleSubmit() {
+    if (allValid()) {
+      setSubmitted(true);
+      addLog("?- all_valid.", "query");
+      addLog("   true. ✓", "pass");
+      return;
+    }
+    // Jostle all invalid fields
+    for (const name of ["name","email","password","confirm","phone","country","zip"]) {
+      touchField(name);
+      if (!validMemos[name]()) {
+        jostle(name);
+        addLog("?- valid(" + name + ").", "query");
+        addLog("   false.", "fail");
+      }
+    }
+  }
+
+  // Build a field component
+  function Field(props) {
+    const isValid = validMemos[props.name];
+    const isTouched = touched[props.name][0];
+    const hint = hintMemos[props.name];
+    const isJostling = jostling[props.name][0];
+    const value = fields[props.name][0];
+
+    const showStatus = () => isTouched() && value() !== "";
+    const inputClass = () => {
+      if (!showStatus()) return "";
+      return isValid() ? "valid" : "invalid";
+    };
+
+    return h("div", { class: () => "field" + (isJostling() ? " jostle" : "") },
+      h("div", { class: "field-label" },
+        h("label", { for: props.name }, props.label),
+        h("span", {
+          class: () => "field-status" + (showStatus() ? " visible" : "") + (isValid() ? " valid" : " invalid")
+        }, () => showStatus() ? (isValid() ? "✓" : "needs work") : "")
+      ),
+      props.type === "select"
+        ? h("select", {
+            id: props.name,
+            value: value,
+            onchange: (e) => { updateField(props.name, e.target.value); touchField(props.name); },
+          },
+            h("option", { value: "" }, "Choose..."),
+            ...(props.options || []).map(([val, label]) =>
+              h("option", { value: val }, label)
+            )
+          )
+        : h("input", {
+            id: props.name,
+            type: props.inputType || "text",
+            placeholder: props.placeholder || "",
+            value: value,
+            oninput: (e) => updateField(props.name, e.target.value),
+            onfocus: () => touchField(props.name),
+            onblur: () => { if (!isValid() && value()) jostle(props.name); },
+            class: inputClass,
+          }),
+      // Password strength meter
+      props.name === "password" ? h("div", { class: "strength-meter" },
+        ...[0,1,2,3].map(i =>
+          h("div", { class: () => {
+            const s = pwStrength();
+            if (i >= s) return "strength-bar";
+            const levels = ["weak","medium","strong","very-strong"];
+            return "strength-bar filled " + levels[s-1];
+          }})
+        )
+      ) : null,
+      h("div", { class: () => "hint" + (isValid() && isTouched() ? " success" : isTouched() ? " active" : "") },
+        () => {
+          if (isValid() && isTouched()) return "✓ " + (props.successMsg || "Looks good!");
+          return hint();
+        }
+      ),
+    );
+  }
+
+  return h("div", { class: "container" },
+    h("div", { class: "header" },
+      h("h1", null, "Create your account"),
+      h("p", null, "Every field is validated in real-time by a tiny Prolog engine"),
+      h("span", { class: "prolog-badge" }, "⚡ Prolog-powered validation"),
+    ),
+    h("div", { class: () => "form-card" + (submitted() ? " success" : "") },
+      () => submitted()
+        ? h("div", { style: "text-align:center; padding: 24px 0;" },
+            h("div", { style: "font-size: 48px; margin-bottom: 16px;" }, "🎉"),
+            h("h2", { style: "font-family: 'Libre Baskerville', serif; font-size: 22px; margin-bottom: 8px; color: var(--green);" }, "Account created!"),
+            h("p", { style: "color: var(--ink-faint); font-size: 14px; margin-bottom: 20px;" }, "All 7 Prolog validation queries passed."),
+            h("button", {
+              class: "submit-btn",
+              style: "max-width: 200px; margin: 0 auto;",
+              onclick: () => { setSubmitted(false); for (const name of ["name","email","password","confirm","phone","country","zip"]) { updateField(name, ""); touched[name][1](false); } }
+            }, "Start over"),
+          )
+        : [
+          Field({ name: "name", label: "Full name", placeholder: "Ada Lovelace", successMsg: "Nice to meet you!" }),
+          Field({ name: "email", label: "Email", placeholder: "ada@example.com", inputType: "email", successMsg: "Perfect!" }),
+          Field({ name: "password", label: "Password", placeholder: "••••••••", inputType: "password", successMsg: "Strong password!" }),
+          Field({ name: "confirm", label: "Confirm password", placeholder: "••••••••", inputType: "password", successMsg: "Passwords match!" }),
+          h("div", { class: "field-row" },
+            Field({ name: "phone", label: "Phone", placeholder: "+1 (555) 123-4567", inputType: "tel", successMsg: "Got it!" }),
+            Field({ name: "country", label: "Country", type: "select", options: [["us","United States"],["uk","United Kingdom"],["ca","Canada"],["de","Germany"],["fr","France"],["au","Australia"],["jp","Japan"]], successMsg: "Selected!" }),
+          ),
+          Field({ name: "zip", label: "Postal code", placeholder: "12345", successMsg: "Valid!" }),
+          h("div", { class: "submit-area" },
+            h("button", {
+              class: "submit-btn",
+              disabled: () => submitted(),
+              onclick: handleSubmit
+            }, "Create account"),
+            h("p", { class: "submit-hint" }, submitHint),
+          ),
+        ],
+    ),
+    h("div", { class: "log-toggle" },
+      h("button", { onclick: () => setShowLog(!showLog()) },
+        () => showLog() ? "Hide Prolog log" : "Show Prolog log"
+      ),
+    ),
+    () => showLog() ? h("div", { class: "log-panel" },
+      () => log().length === 0
+        ? h("div", { class: "log-entry" }, "% Waiting for interaction...")
+        : log().map(entry => h("div", { class: "log-entry " + entry.type }, entry.msg))
+    ) : null,
+  );
+}
+
+render(App, document.getElementById("app"));
+</script>
+</body>
+</html>

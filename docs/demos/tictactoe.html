@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>?- play(tic_tac_toe). — Solid + Prolog</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #06080c;
+    --surface: #0d1117;
+    --border: #1b1f27;
+    --border-bright: #2d333b;
+    --text: #c8ccd4;
+    --text-dim: #6e7681;
+    --text-faint: #3d444d;
+    --green: #56d364;
+    --green-glow: rgba(86,211,100,0.3);
+    --green-dim: rgba(86,211,100,0.08);
+    --red: #f85149;
+    --orange: #f78166;
+    --blue: #79c0ff;
+    --yellow: #d29922;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 20px var(--green-glow);
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  .game-area {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 28px;
+    max-width: 780px;
+    width: 100%;
+  }
+
+  .board-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .status {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    background: var(--border);
+    padding: 4px;
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(86,211,100,0.04), inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+
+  .cell {
+    width: 92px;
+    height: 92px;
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 36px;
+    font-weight: 800;
+    font-family: inherit;
+    color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.15s ease;
+  }
+
+  .cell:disabled { cursor: default; }
+  .cell:not(:disabled):hover {
+    background: var(--green-dim);
+    border-color: rgba(86,211,100,0.25);
+  }
+
+  .cell.x { color: var(--green); background: #161b22; }
+  .cell.o { color: var(--orange); background: #161b22; }
+  .cell.win-x { background: rgba(86,211,100,0.12); border-color: rgba(86,211,100,0.4); }
+  .cell.win-o { background: rgba(248,81,73,0.12); border-color: rgba(248,81,73,0.4); }
+
+  .cell-hint {
+    position: absolute;
+    font-size: 11px;
+    color: var(--text-faint);
+    bottom: 4px;
+    right: 8px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .btn {
+    padding: 8px 20px;
+    background: #21262d;
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: var(--border-bright); }
+  .btn.active {
+    background: var(--green-dim);
+    color: var(--green);
+    border-color: rgba(86,211,100,0.3);
+  }
+
+  .log-panel {
+    width: 280px;
+    min-width: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .log-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .log-body {
+    flex: 1;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-y: auto;
+    max-height: 340px;
+    min-height: 200px;
+  }
+
+  .log-entry { white-space: pre-wrap; word-break: break-all; }
+  .log-entry.query { color: var(--blue); }
+  .log-entry.success { color: var(--green); }
+  .log-entry.win { color: var(--red); }
+  .log-entry.draw { color: var(--yellow); }
+  .log-entry.info { color: var(--text-dim); }
+
+  .source-panel {
+    margin-top: 28px;
+    max-width: 640px;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .source-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .source-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .source-note {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .source-code {
+    padding: 14px 18px;
+    font-size: 12px;
+    line-height: 1.65;
+    overflow: auto;
+    max-height: 500px;
+    color: #adbac7;
+  }
+
+  .source-line-num {
+    color: var(--border-bright);
+    user-select: none;
+    margin-right: 12px;
+    display: inline-block;
+    width: 24px;
+    text-align: right;
+  }
+
+  .source-comment { color: #3d8c5f; }
+  .source-head { color: var(--blue); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .thinking-indicator {
+    display: inline-block;
+    animation: pulse 1s infinite;
+    margin-right: 8px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+// ── Inline engine + KB (bundled for single-file deployment) ──
+
+// ---- prolog-engine.js (inlined) ----
+class PrologEngine {
+  constructor() { this.clauses = []; this.builtins = {}; this._output = []; this._registerBuiltins(); }
+  static atom(name) { return { type: "atom", name }; }
+  static variable(name) { return { type: "var", name }; }
+  static compound(functor, args) { return { type: "compound", functor, args }; }
+  static num(n) { return { type: "num", value: n }; }
+  static list(items, tail = null) {
+    let l = tail || PrologEngine.atom("[]");
+    for (let i = items.length - 1; i >= 0; i--) l = PrologEngine.compound(".", [items[i], l]);
+    return l;
+  }
+  walk(term, subst) { while (term && term.type === "var" && subst.has(term.name)) term = subst.get(term.name); return term; }
+  deepWalk(term, subst) {
+    term = this.walk(term, subst);
+    if (!term) return term;
+    if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(a => this.deepWalk(a, subst)));
+    return term;
+  }
+  unify(a, b, subst) {
+    a = this.walk(a, subst); b = this.walk(b, subst);
+    if (!a || !b) return null;
+    if (a.type === "var") { const s = new Map(subst); s.set(a.name, b); return s; }
+    if (b.type === "var") { const s = new Map(subst); s.set(b.name, a); return s; }
+    if (a.type === "atom" && b.type === "atom" && a.name === b.name) return subst;
+    if (a.type === "num" && b.type === "num" && a.value === b.value) return subst;
+    if (a.type === "compound" && b.type === "compound" && a.functor === b.functor && a.args.length === b.args.length) {
+      let s = subst;
+      for (let i = 0; i < a.args.length; i++) { s = this.unify(a.args[i], b.args[i], s); if (s === null) return null; }
+      return s;
+    }
+    return null;
+  }
+  addClause(head, body = []) { this.clauses.push({ head, body }); }
+  retractFirst(head) {
+    for (let i = 0; i < this.clauses.length; i++) {
+      const fresh = this._freshVars(this.clauses[i], { n: 9000 });
+      if (this.unify(head, fresh.head, new Map()) !== null) { this.clauses.splice(i, 1); return true; }
+    }
+    return false;
+  }
+  _freshVars(clause, counter) {
+    const mapping = {};
+    const rename = (term) => {
+      if (!term) return term;
+      if (term.type === "var") { if (!mapping[term.name]) mapping[term.name] = PrologEngine.variable(`_V${counter.n++}`); return mapping[term.name]; }
+      if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(rename));
+      return term;
+    };
+    return { head: rename(clause.head), body: clause.body.map(rename) };
+  }
+  *solve(goals, subst, counter, depth = 0) {
+    if (depth > 300) return;
+    if (goals.length === 0) { yield subst; return; }
+    const [goal, ...rest] = goals;
+    const resolved = this.deepWalk(goal, subst);
+    const key = resolved.type === "compound" ? `${resolved.functor}/${resolved.args.length}` : resolved.type === "atom" ? `${resolved.name}/0` : null;
+    if (key && this.builtins[key]) { yield* this.builtins[key](resolved, rest, subst, counter, depth); return; }
+    for (const clause of this.clauses) {
+      const fresh = this._freshVars(clause, counter);
+      const s = this.unify(resolved, fresh.head, subst);
+      if (s !== null) yield* this.solve([...fresh.body, ...rest], s, counter, depth + 1);
+    }
+  }
+  query(goal, limit = 50) {
+    const counter = { n: 0 }; const results = [];
+    for (const subst of this.solve([goal], new Map(), counter)) { results.push(this.deepWalk(goal, subst)); if (results.length >= limit) break; }
+    return results;
+  }
+  queryFirst(goal) {
+    const counter = { n: 0 };
+    for (const subst of this.solve([goal], new Map(), counter)) return this.deepWalk(goal, subst);
+    return null;
+  }
+  _registerBuiltins() {
+    const self = this;
+    this.builtins["not/1"] = function*(goal, rest, subst, counter, depth) {
+      const inner = self.deepWalk(goal.args[0], subst); let found = false;
+      for (const _ of self.solve([inner], subst, counter, depth+1)) { found = true; break; }
+      if (!found) yield* self.solve(rest, subst, counter, depth+1);
+    };
+    this.builtins["\\+/1"] = this.builtins["not/1"];
+    this.builtins["=/2"] = function*(goal, rest, subst, counter, depth) { const s = self.unify(goal.args[0], goal.args[1], subst); if (s !== null) yield* self.solve(rest, s, counter, depth+1); };
+    this.builtins["\\=/2"] = function*(goal, rest, subst, counter, depth) { const s = self.unify(goal.args[0], goal.args[1], subst); if (s === null) yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["member/2"] = function*(goal, rest, subst, counter, depth) {
+      const elem = goal.args[0]; let list = self.deepWalk(goal.args[1], subst);
+      while (list && list.type === "compound" && list.functor === "." && list.args.length === 2) {
+        const s = self.unify(elem, list.args[0], subst); if (s !== null) yield* self.solve(rest, s, counter, depth+1);
+        list = self.deepWalk(list.args[1], subst);
+      }
+    };
+    this.builtins["nth1/3"] = function*(goal, rest, subst, counter, depth) {
+      const idxTerm = self.deepWalk(goal.args[0], subst); let list = self.deepWalk(goal.args[1], subst); const elem = goal.args[2]; let i = 1;
+      while (list && list.type === "compound" && list.functor === "." && list.args.length === 2) {
+        if (idxTerm.type === "num") { if (i === idxTerm.value) { const s = self.unify(elem, list.args[0], subst); if (s !== null) yield* self.solve(rest, s, counter, depth+1); return; } }
+        else { let s = self.unify(idxTerm, PrologEngine.num(i), subst); if (s !== null) { s = self.unify(elem, list.args[0], s); if (s !== null) yield* self.solve(rest, s, counter, depth+1); } }
+        list = self.deepWalk(list.args[1], subst); i++;
+      }
+    };
+    this.builtins["replace/4"] = function*(goal, rest, subst, counter, depth) {
+      let list = self.deepWalk(goal.args[0], subst); const idx = self.deepWalk(goal.args[1], subst); const val = self.deepWalk(goal.args[2], subst); const result = goal.args[3];
+      if (idx.type !== "num") return; const items = [];
+      while (list && list.type === "compound" && list.functor === "." && list.args.length === 2) { items.push(list.args[0]); list = self.deepWalk(list.args[1], subst); }
+      if (idx.value < 1 || idx.value > items.length) return;
+      const ni = [...items]; ni[idx.value-1] = val;
+      const s = self.unify(result, PrologEngine.list(ni), subst); if (s !== null) yield* self.solve(rest, s, counter, depth+1);
+    };
+    this.builtins["is/2"] = function*(goal, rest, subst, counter, depth) {
+      const lhs = goal.args[0]; const rhs = self.deepWalk(goal.args[1], subst); const val = evalArith(rhs);
+      if (val !== null) { const s = self.unify(lhs, PrologEngine.num(val), subst); if (s !== null) yield* self.solve(rest, s, counter, depth+1); }
+    };
+    for (const [op, fn] of [[">/2",(a,b)=>a>b],["</2",(a,b)=>a<b],[">=/2",(a,b)=>a>=b],["=</2",(a,b)=>a<=b],["=:=/2",(a,b)=>a===b],["=\\=/2",(a,b)=>a!==b]]) {
+      this.builtins[op] = function*(goal, rest, subst, counter, depth) {
+        const a = evalArith(self.deepWalk(goal.args[0], subst)), b = evalArith(self.deepWalk(goal.args[1], subst));
+        if (a !== null && b !== null && fn(a,b)) yield* self.solve(rest, subst, counter, depth+1);
+      };
+    }
+    this.builtins["==/2"] = function*(goal, rest, subst, counter, depth) { if (termEq(self.deepWalk(goal.args[0], subst), self.deepWalk(goal.args[1], subst))) yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["\\==/2"] = function*(goal, rest, subst, counter, depth) { if (!termEq(self.deepWalk(goal.args[0], subst), self.deepWalk(goal.args[1], subst))) yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["true/0"] = function*(goal, rest, subst, counter, depth) { yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["fail/0"] = function*() {};
+    this.builtins[",/2"] = function*(goal, rest, subst, counter, depth) { yield* self.solve([goal.args[0], goal.args[1], ...rest], subst, counter, depth+1); };
+    this.builtins[";/2"] = function*(goal, rest, subst, counter, depth) {
+      const left = self.deepWalk(goal.args[0], subst), right = self.deepWalk(goal.args[1], subst);
+      if (left.type === "compound" && left.functor === "->" && left.args.length === 2) {
+        let found = false; for (const s of self.solve([left.args[0]], subst, counter, depth+1)) { found = true; yield* self.solve([left.args[1], ...rest], s, counter, depth+1); break; }
+        if (!found) yield* self.solve([right, ...rest], subst, counter, depth+1);
+      } else { yield* self.solve([left, ...rest], subst, counter, depth+1); yield* self.solve([right, ...rest], subst, counter, depth+1); }
+    };
+    this.builtins["->/2"] = function*(goal, rest, subst, counter, depth) {
+      for (const s of self.solve([goal.args[0]], subst, counter, depth+1)) { yield* self.solve([goal.args[1], ...rest], s, counter, depth+1); break; }
+    };
+    this.builtins["assert/1"] = function*(goal, rest, subst, counter, depth) { self.clauses.push({ head: self.deepWalk(goal.args[0], subst), body: [] }); yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["assertz/1"] = this.builtins["assert/1"];
+    this.builtins["retract/1"] = function*(goal, rest, subst, counter, depth) { if (self.retractFirst(self.deepWalk(goal.args[0], subst))) yield* self.solve(rest, subst, counter, depth+1); };
+    this.builtins["findall/3"] = function*(goal, rest, subst, counter, depth) {
+      const template = goal.args[0], qg = self.deepWalk(goal.args[1], subst), bag = goal.args[2], results = [];
+      for (const s of self.solve([qg], subst, counter, depth+1)) results.push(self.deepWalk(template, s));
+      const s2 = self.unify(bag, PrologEngine.list(results), subst); if (s2 !== null) yield* self.solve(rest, s2, counter, depth+1);
+    };
+    function evalArith(term) {
+      if (!term) return null; if (term.type === "num") return term.value;
+      if (term.type === "compound") {
+        const ops = {"+": (a,b)=>a+b, "-": (a,b)=>a-b, "*": (a,b)=>a*b};
+        if (ops[term.functor] && term.args.length === 2) { const a = evalArith(term.args[0]), b = evalArith(term.args[1]); return a!==null && b!==null ? ops[term.functor](a,b) : null; }
+        if (term.functor === "//" && term.args.length === 2) { const a = evalArith(term.args[0]), b = evalArith(term.args[1]); return a!==null && b!==null && b!==0 ? Math.trunc(a/b) : null; }
+        if (term.functor === "mod" && term.args.length === 2) { const a = evalArith(term.args[0]), b = evalArith(term.args[1]); return a!==null && b!==null && b!==0 ? a%b : null; }
+        if (term.functor === "abs" && term.args.length === 1) { const a = evalArith(term.args[0]); return a!==null ? Math.abs(a) : null; }
+        if (term.functor === "-" && term.args.length === 1) { const a = evalArith(term.args[0]); return a!==null ? -a : null; }
+      }
+      return null;
+    }
+    function termEq(a, b) {
+      if (!a || !b) return false; if (a.type !== b.type) return false;
+      if (a.type === "atom") return a.name === b.name; if (a.type === "num") return a.value === b.value; if (a.type === "var") return a.name === b.name;
+      if (a.type === "compound") { if (a.functor !== b.functor || a.args.length !== b.args.length) return false; return a.args.every((arg,i) => termEq(arg, b.args[i])); }
+      return false;
+    }
+  }
+}
+const P = PrologEngine;
+const a = P.atom, v = P.variable, c = P.compound, n = P.num, list = P.list;
+
+// ---- tictactoe KB ----
+function buildTicTacToeKB() {
+  const engine = new P();
+  for (const [a1,b1,c1] of [[1,2,3],[4,5,6],[7,8,9],[1,4,7],[2,5,8],[3,6,9],[1,5,9],[3,5,7]])
+    engine.addClause(c("line", [n(a1), n(b1), n(c1)]));
+  engine.addClause(c("win", [v("B"), v("P")]), [c("line",[v("A"),v("B2"),v("C2")]), c("nth1",[v("A"),v("B"),v("P")]), c("nth1",[v("B2"),v("B"),v("P")]), c("nth1",[v("C2"),v("B"),v("P")])]);
+  engine.addClause(c("empty", [v("B"), v("Pos")]), [c("nth1", [v("Pos"), v("B"), a("e")])]);
+  engine.addClause(c("move", [v("B"),v("Pos"),v("P"),v("NB")]), [c("empty",[v("B"),v("Pos")]), c("replace",[v("B"),v("Pos"),v("P"),v("NB")])]);
+  engine.addClause(c("board_full", [v("B")]), [c("not", [c("member", [a("e"), v("B")])])]);
+  engine.addClause(c("can_win", [v("B"),v("P"),v("Pos")]), [c("empty",[v("B"),v("Pos")]), c("move",[v("B"),v("Pos"),v("P"),v("NB")]), c("win",[v("NB"),v("P")])]);
+  engine.addClause(c("choose_move", [v("B"),v("P"),v("Pos")]), [c("can_win",[v("B"),v("P"),v("Pos")])]);
+  engine.addClause(c("choose_move", [v("B"),v("P"),v("Pos")]), [c("opponent",[v("P"),v("O")]), c("can_win",[v("B"),v("O"),v("Pos")])]);
+  engine.addClause(c("choose_move", [v("B"),v("_"),n(5)]), [c("empty",[v("B"),n(5)])]);
+  engine.addClause(c("choose_move", [v("B"),v("_"),v("Pos")]), [c("member",[v("Pos"),list([n(1),n(3),n(7),n(9)])]), c("empty",[v("B"),v("Pos")])]);
+  engine.addClause(c("choose_move", [v("B"),v("_"),v("Pos")]), [c("member",[v("Pos"),list([n(2),n(4),n(6),n(8)])]), c("empty",[v("B"),v("Pos")])]);
+  engine.addClause(c("opponent", [a("x"), a("o")]));
+  engine.addClause(c("opponent", [a("o"), a("x")]));
+  return engine;
+}
+
+function boardToProlog(board) {
+  return P.list(board.map(cell => cell === null ? a("e") : a(cell)));
+}
+
+const PROLOG_SOURCE = `% Tic-Tac-Toe in Prolog
+% Board = [C1,C2,...,C9], Cells: x | o | e
+
+line(1,2,3). line(4,5,6). line(7,8,9).
+line(1,4,7). line(2,5,8). line(3,6,9).
+line(1,5,9). line(3,5,7).
+
+win(Board, Player) :-
+    line(A, B, C),
+    nth1(A, Board, Player),
+    nth1(B, Board, Player),
+    nth1(C, Board, Player).
+
+empty(Board, Pos) :- nth1(Pos, Board, e).
+board_full(Board) :- \\+ member(e, Board).
+opponent(x, o). opponent(o, x).
+
+move(Board, Pos, Player, NewBoard) :-
+    empty(Board, Pos),
+    replace(Board, Pos, Player, NewBoard).
+
+choose_move(Board, Player, Pos) :-
+    can_win(Board, Player, Pos).
+choose_move(Board, Player, Pos) :-
+    opponent(Player, Opp),
+    can_win(Board, Opp, Pos).
+choose_move(Board, _Player, 5) :-
+    empty(Board, 5).
+choose_move(Board, _Player, Pos) :-
+    member(Pos, [1,3,7,9]),
+    empty(Board, Pos).
+choose_move(Board, _Player, Pos) :-
+    member(Pos, [2,4,6,8]),
+    empty(Board, Pos).
+
+can_win(Board, Player, Pos) :-
+    empty(Board, Pos),
+    move(Board, Pos, Player, NB),
+    win(NB, Player).`;
+
+// ---- SolidJS ----
+import { createSignal, createMemo, createEffect, onMount, For, Show } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+function App() {
+  const [board, setBoard] = createSignal(Array(9).fill(null));
+  const [status, setStatus] = createSignal("your_turn");
+  const [winLine, setWinLine] = createSignal(null);
+  const [showSource, setShowSource] = createSignal(false);
+  const [log, setLog] = createSignal([]);
+  const aiSymbol = "o";
+  const playerSymbol = "x";
+  let engine = buildTicTacToeKB();
+  let logEnd;
+
+  const addLog = (msg) => setLog(prev => [...prev.slice(-30), msg]);
+
+  const gameOver = createMemo(() => ["won","lost","draw"].includes(status()));
+  const statusText = createMemo(() => ({
+    your_turn: `Your move (X)`,
+    ai_thinking: "Prolog is thinking...",
+    won: "You win!",
+    lost: "Prolog wins!",
+    draw: "It's a draw!",
+  }[status()]));
+
+  const statusColor = createMemo(() => ({
+    won: "var(--green)", lost: "var(--red)",
+    draw: "var(--yellow)", ai_thinking: "var(--blue)",
+  }[status()] || "var(--text)"));
+
+  createEffect(() => { log(); logEnd?.scrollIntoView({ behavior: "smooth" }); });
+
+  function checkWin(b) {
+    const pBoard = boardToProlog(b);
+    const winX = engine.queryFirst(c("win", [pBoard, a("x")]));
+    const winO = engine.queryFirst(c("win", [pBoard, a("o")]));
+    if (winX || winO) {
+      const winner = winX ? "x" : "o";
+      for (const ln of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (ln.every(i => b[i] === winner)) return { winner, line: ln };
+      return { winner, line: null };
+    }
+    if (engine.queryFirst(c("board_full", [pBoard]))) return { winner: "draw", line: null };
+    return null;
+  }
+
+  function aiMove(currentBoard) {
+    setStatus("ai_thinking");
+    addLog(`?- choose_move(Board, o, Pos).`);
+    setTimeout(() => {
+      const pBoard = boardToProlog(currentBoard);
+      const result = engine.queryFirst(c("choose_move", [pBoard, a(aiSymbol), v("Pos")]));
+      if (result && result.args[2].type === "num") {
+        const pos = result.args[2].value - 1;
+        addLog(`   Pos = ${pos+1}  ✓`);
+        const newBoard = [...currentBoard]; newBoard[pos] = aiSymbol;
+        setBoard(newBoard);
+        const outcome = checkWin(newBoard);
+        if (outcome) {
+          if (outcome.winner === "draw") { setStatus("draw"); addLog("% Game drawn."); }
+          else if (outcome.winner === aiSymbol) { setStatus("lost"); setWinLine(outcome.line); addLog(`% o wins!`); }
+          else { setStatus("won"); setWinLine(outcome.line); addLog(`% x wins!`); }
+        } else { setStatus("your_turn"); addLog(`% Your turn (x).`); }
+      } else { setStatus("draw"); addLog("   no move found"); }
+    }, 350);
+  }
+
+  function handleClick(i) {
+    if (status() !== "your_turn" || board()[i] !== null) return;
+    const newBoard = [...board()]; newBoard[i] = playerSymbol;
+    setBoard(newBoard);
+    addLog(`% Player moves to ${i+1}.`);
+    const outcome = checkWin(newBoard);
+    if (outcome) {
+      if (outcome.winner === "draw") { setStatus("draw"); addLog("% Game drawn."); }
+      else if (outcome.winner === playerSymbol) { setStatus("won"); setWinLine(outcome.line); addLog(`% x wins!`); }
+      else { setStatus("lost"); setWinLine(outcome.line); addLog(`% o wins!`); }
+    } else { aiMove(newBoard); }
+  }
+
+  function reset() {
+    engine = buildTicTacToeKB();
+    setBoard(Array(9).fill(null));
+    setStatus("your_turn");
+    setWinLine(null);
+    addLog("% ---- New Game ----");
+  }
+
+  // Build DOM with h()
+  return h("div", null,
+    h("h1", null, "?- play(tic_tac_toe)."),
+    h("p", { class: "subtitle" }, "Solid + Prolog — reactive signals meet unification"),
+    h("div", { class: "game-area" },
+      // Board column
+      h("div", { class: "board-col" },
+        h("div", { class: "status", style: () => `color: ${statusColor()}` },
+          () => status() === "ai_thinking" ? h("span", { class: "thinking-indicator" }, "▶") : null,
+          statusText
+        ),
+        h("div", { class: "grid" },
+          () => board().map((cell, i) => {
+            const isWin = () => winLine() && winLine().includes(i);
+            const cls = () => {
+              let cl = "cell";
+              if (cell) cl += " " + cell;
+              if (isWin()) cl += " win-" + cell;
+              return cl;
+            };
+            return h("button", {
+              class: cls,
+              disabled: () => cell !== null || gameOver() || status() === "ai_thinking",
+              onclick: () => handleClick(i)
+            },
+              () => cell === "x" ? "✕" : cell === "o" ? "○" : "",
+              () => !cell && !gameOver() && status() === "your_turn"
+                ? h("span", { class: "cell-hint" }, i + 1)
+                : null
+            );
+          })
+        ),
+        h("div", { class: "controls" },
+          h("button", { class: "btn", onclick: reset }, "New Game"),
+          h("button", {
+            class: () => "btn" + (showSource() ? " active" : ""),
+            onclick: () => setShowSource(!showSource())
+          }, () => (showSource() ? "Hide" : "Show") + " Prolog Source")
+        )
+      ),
+      // Log panel
+      h("div", { class: "log-panel" },
+        h("div", { class: "log-header" }, "Inference Log"),
+        h("div", { class: "log-body" },
+          () => log().length === 0
+            ? h("span", { style: "color: var(--text-faint)" }, "% Waiting for first move...")
+            : null,
+          () => log().map((entry, i) => {
+            const cls = entry.startsWith("?-") ? "query"
+              : entry.includes("✓") ? "success"
+              : entry.includes("wins") ? "win"
+              : entry.includes("drawn") ? "draw"
+              : "info";
+            return h("div", { class: "log-entry " + cls }, entry);
+          }),
+          h("div", { ref: (el) => logEnd = el })
+        )
+      )
+    ),
+    // Source panel
+    () => showSource() ? h("div", { class: "source-panel" },
+      h("div", { class: "source-header" },
+        h("span", { class: "source-title" }, "tictactoe.pl"),
+        h("span", { class: "source-note" }, "This logic runs in the interpreter above")
+      ),
+      h("pre", { class: "source-code" },
+        () => PROLOG_SOURCE.split("\n").map((line, i) => {
+          const isComment = line.trimStart().startsWith("%");
+          const isHead = /^[a-z]\w*\(/.test(line.trimStart());
+          return h("div", { class: isComment ? "source-comment" : isHead ? "source-head" : "" },
+            h("span", { class: "source-line-num" }, i + 1),
+            " " + line
+          );
+        })
+      )
+    ) : null
+  );
+}
+
+render(App, document.getElementById("app"));
+</script>
+</body>
+</html>

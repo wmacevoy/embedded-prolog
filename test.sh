@@ -43,6 +43,8 @@ if [ -z "$1" ] || [ "$1" = "python" ]; then
   if [ -n "$PYTHON" ]; then
     run "Python vending machine ($PYTHON, 17 tests)" \
       "$PYTHON examples/vending/test.py"
+    run "Python message router ($PYTHON, 28 tests)" \
+      "$PYTHON examples/router/test.py"
   else
     echo "  (skipping Python tests — no interpreter found)"
   fi

@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Embedded Prolog — Decision Logic for JS, Python, and C</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0c14;
+  --surface: #12151f;
+  --surface-2: #191d2b;
+  --border: #252a3a;
+  --border-bright: #333a50;
+  --text: #c0c5d8;
+  --text-dim: #6a7094;
+  --text-faint: #3a3f55;
+  --primary: #7b8cff;
+  --primary-glow: rgba(123,140,255,0.15);
+  --primary-dim: rgba(123,140,255,0.08);
+  --green: #56d364;
+  --green-dim: rgba(86,211,100,0.08);
+  --amber: #e8a838;
+  --amber-glow: rgba(232,168,56,0.15);
+  --amber-dim: rgba(232,168,56,0.08);
+  --red: #f85149;
+  --red-dim: rgba(248,81,73,0.08);
+  --cyan: #79c0ff;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Hero ───────────────────────────────────── */
+
+.hero {
+  text-align: center;
+  padding: 72px 24px 56px;
+  position: relative;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+}
+
+.hero h1 {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--primary), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 12px;
+}
+
+.hero .tagline {
+  font-size: 19px;
+  color: var(--text-dim);
+  max-width: 520px;
+  margin: 0 auto 28px;
+  line-height: 1.5;
+}
+
+.hero-features {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.hero-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.hero-badge .dot.green { background: var(--green); }
+.hero-badge .dot.amber { background: var(--amber); }
+.hero-badge .dot.primary { background: var(--primary); }
+
+/* ── Section ────────────────────────────────── */
+
+section {
+  padding: 56px 0;
+}
+
+.section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+.section-heading {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #e8eaf2;
+  margin-bottom: 12px;
+}
+
+.section-desc {
+  font-size: 15px;
+  color: var(--text-dim);
+  max-width: 600px;
+  margin-bottom: 32px;
+  line-height: 1.6;
+}
+
+/* ── Reactive Demo ──────────────────────────── */
+
+.reactive-demo-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 700px) {
+  .reactive-demo-layout { grid-template-columns: 1fr; }
+}
+
+.demo-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.demo-panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.demo-panel-body {
+  padding: 20px;
+}
+
+.sensor-row {
+  margin-bottom: 18px;
+}
+
+.sensor-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sensor-label .name { color: var(--text); }
+.sensor-label .value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--cyan);
+}
+
+.sensor-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+}
+
+.sensor-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.status-display {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.on { background: var(--green); box-shadow: 0 0 6px rgba(86,211,100,0.4); }
+.status-dot.off { background: var(--border-bright); }
+.status-dot.warn { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+.status-dot.danger { background: var(--red); box-shadow: 0 0 6px rgba(248,81,73,0.4); }
+
+.prolog-source {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.prolog-source .comment { color: #3d8c5f; }
+.prolog-source .head { color: var(--primary); }
+.prolog-source .keyword { color: var(--amber); }
+
+/* ── Playground ─────────────────────────────── */
+
+.playground-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
+  flex-wrap: wrap;
+}
+
+.playground-tab {
+  padding: 8px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.playground-tab:hover { color: var(--text-dim); }
+.playground-tab.active {
+  color: var(--primary);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.playground-editor {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0 12px 12px 12px;
+  overflow: hidden;
+}
+
+.code-area {
+  display: block;
+  width: 100%;
+  min-height: 260px;
+  padding: 16px 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.playground-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green);
+  background: var(--green-dim);
+  border: 1px solid rgba(86,211,100,0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.run-btn:hover {
+  background: rgba(86,211,100,0.15);
+  border-color: rgba(86,211,100,0.35);
+}
+
+.toolbar-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.output-panel {
+  margin-top: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.output-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.output-body {
+  padding: 14px 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  min-height: 60px;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.output-body .query { color: var(--cyan); }
+.output-body .result { color: var(--green); }
+.output-body .error { color: var(--red); }
+.output-body .dim { color: var(--text-faint); }
+
+/* ── Demo Cards ─────────────────────────────── */
+
+.demo-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .demo-cards { grid-template-columns: 1fr; }
+}
+
+.demo-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-card:hover {
+  border-color: var(--border-bright);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+
+.demo-card .card-icon {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.demo-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e8eaf2;
+  margin-bottom: 8px;
+}
+
+.demo-card p {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.demo-card .card-tag {
+  margin-top: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--primary);
+}
+
+/* ── Getting Started ────────────────────────── */
+
+.start-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .start-grid { grid-template-columns: 1fr; }
+}
+
+.start-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.start-card-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.start-card pre {
+  padding: 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text);
+  overflow-x: auto;
+}
+
+/* ── Footer ─────────────────────────────────── */
+
+footer {
+  text-align: center;
+  padding: 40px 24px;
+  border-top: 1px solid var(--border);
+  margin-top: 40px;
+}
+
+footer p {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+footer a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+footer a:hover { text-decoration: underline; }
+
+/* ── Scrollbar ──────────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- HERO                                       -->
+<!-- ══════════════════════════════════════════ -->
+
+<header class="hero">
+  <h1>Embedded Prolog</h1>
+  <p class="tagline">
+    A tiny Prolog engine with reactive bindings.
+    Write decision logic as rules, not nested if/else.
+    JavaScript. Python. C. Same engine, same API.
+  </p>
+  <div class="hero-features">
+    <span class="hero-badge"><span class="dot green"></span>Inference engine (~300 lines)</span>
+    <span class="hero-badge"><span class="dot amber"></span>Reactive signals + memos</span>
+    <span class="hero-badge"><span class="dot primary"></span>Zero dependencies</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- REACTIVE DEMO                              -->
+<!-- ══════════════════════════════════════════ -->
+
+<section class="container">
+  <div class="section-title">Live Demo</div>
+  <h2 class="section-heading">Prolog meets reactive signals</h2>
+  <p class="section-desc">
+    Drag the sliders to change sensor readings. The Prolog engine evaluates
+    alert rules and status queries in real-time &mdash; no manual wiring needed.
+  </p>
+  <div id="reactive-demo"></div>
+</section>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- PLAYGROUND                                 -->
+<!-- ══════════════════════════════════════════ -->
+
+<section class="container">
+  <div class="section-title">Playground</div>
+  <h2 class="section-heading">Try the engine</h2>
+  <p class="section-desc">
+    Edit the code below and hit Run. Each tab builds on the last &mdash;
+    facts, rules, dynamic state, custom builtins.
+  </p>
+  <div id="playground"></div>
+</section>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- DEMOS                                      -->
+<!-- ══════════════════════════════════════════ -->
+
+<section class="container">
+  <div class="section-title">Examples</div>
+  <h2 class="section-heading">What you can build</h2>
+  <p class="section-desc">
+    Each demo is a single HTML file &mdash; no build step, no bundler.
+    SolidJS from CDN, Prolog engine inlined, everything runs in the browser.
+  </p>
+  <div class="demo-cards">
+    <a class="demo-card" href="demos/form.html">
+      <div class="card-icon">&#9998;</div>
+      <h3>Form Validator</h3>
+      <p>
+        7 fields, country-dependent postal codes, password strength meter,
+        contextual hints &mdash; all powered by Prolog rules. Add a field?
+        Add one clause.
+      </p>
+      <span class="card-tag">SolidJS + Prolog &rarr;</span>
+    </a>
+    <a class="demo-card" href="demos/tictactoe.html">
+      <div class="card-icon">&#10005;</div>
+      <h3>Tic-Tac-Toe</h3>
+      <p>
+        Play against a Prolog AI. Win detection, move strategy, and board
+        evaluation are all Prolog queries. Shows the inference log live.
+      </p>
+      <span class="card-tag">SolidJS + Prolog &rarr;</span>
+    </a>
+    <a class="demo-card" href="demos/adventure.html">
+      <div class="card-icon">&#9876;</div>
+      <h3>Text Adventure</h3>
+      <p>
+        Explore the Obsidian Tower. Room connections, inventory, locks,
+        context-sensitive NPC dialogue &mdash; the entire game state lives
+        in Prolog.
+      </p>
+      <span class="card-tag">SolidJS + Prolog &rarr;</span>
+    </a>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- GETTING STARTED                            -->
+<!-- ══════════════════════════════════════════ -->
+
+<section class="container">
+  <div class="section-title">Get Started</div>
+  <h2 class="section-heading">Add to your project</h2>
+  <p class="section-desc">
+    No package manager. No install. Just copy the files you need.
+  </p>
+  <div class="start-grid">
+    <div class="start-card">
+      <div class="start-card-header">
+        <span>JavaScript</span>
+      </div>
+      <pre><span style="color:var(--text-dim)">// Copy src/prolog-engine.js to your project</span>
+import { PrologEngine } from './prolog-engine.js';
+const { atom, variable, compound, num } = PrologEngine;
+
+const engine = new PrologEngine();
+
+<span style="color:var(--text-dim)">// Add facts</span>
+engine.addClause(compound("temp", [num(85)]));
+
+<span style="color:var(--text-dim)">// Add rules</span>
+engine.addClause(
+  compound("hot", []),
+  [compound("temp", [variable("T")]),
+   compound(">", [variable("T"), num(80)])]
+);
+
+<span style="color:var(--text-dim)">// Query</span>
+engine.queryFirst(compound("hot", []));
+<span style="color:var(--text-dim)">// => { type: "atom", name: "hot" }</span></pre>
+    </div>
+    <div class="start-card">
+      <div class="start-card-header">
+        <span>Python</span>
+      </div>
+      <pre><span style="color:var(--text-dim)"># Copy src/prolog.py to your project</span>
+from prolog import Engine, atom, var, compound, num
+
+engine = Engine()
+
+<span style="color:var(--text-dim)"># Add facts</span>
+engine.add_clause(compound("temp", [num(85)]))
+
+<span style="color:var(--text-dim)"># Add rules</span>
+engine.add_clause(
+    compound("hot", []),
+    [compound("temp", [var("T")]),
+     compound(">", [var("T"), num(80)])]
+)
+
+<span style="color:var(--text-dim)"># Query</span>
+engine.query_first(compound("hot", []))
+<span style="color:var(--text-dim)"># => ("compound", "hot", ())</span></pre>
+    </div>
+    <div class="start-card">
+      <div class="start-card-header">
+        <span>Browser (single HTML file)</span>
+      </div>
+      <pre><span style="color:var(--text-dim)">&lt;!-- Inline the engine, import SolidJS --&gt;</span>
+&lt;script type="module"&gt;
+import { createSignal, createMemo }
+  from "https://cdn.jsdelivr.net/npm/
+    solid-js@1.9.5/+esm";
+
+const engine = new PrologEngine();
+const [gen, setGen] = createSignal(0);
+
+<span style="color:var(--text-dim)">// Reactive query: auto-updates</span>
+const status = createMemo(() =&gt; {
+  gen();
+  return engine.queryFirst(
+    compound("status", [variable("S")])
+  );
+});
+
+<span style="color:var(--text-dim)">// Change a fact, bump generation</span>
+engine.retractFirst(...);
+engine.addClause(...);
+setGen(g =&gt; g + 1);  <span style="color:var(--text-dim)">// status() recomputes</span>
+&lt;/script&gt;</pre>
+    </div>
+    <div class="start-card">
+      <div class="start-card-header">
+        <span>With Reactive Layer</span>
+      </div>
+      <pre><span style="color:var(--text-dim)"># Copy src/reactive.py + src/reactive_prolog.py</span>
+from prolog import Engine, atom, var, compound, num
+from reactive_prolog import ReactiveEngine
+from reactive import effect
+
+engine = Engine()
+<span style="color:var(--text-dim)"># ... add clauses ...</span>
+
+rp = ReactiveEngine(engine)
+
+<span style="color:var(--text-dim)"># Reactive query: auto-updates on bump()</span>
+status = rp.query_first(
+    lambda: compound("status", [var("S")])
+)
+
+<span style="color:var(--text-dim)"># Side-effect: runs whenever status changes</span>
+def on_change():
+    print("Status:", status())
+effect(on_change)
+
+<span style="color:var(--text-dim)"># Change facts, bump to recompute</span>
+engine.retract_first(...)
+engine.add_clause(...)
+rp.bump()  <span style="color:var(--text-dim)"># status() recomputes, effect fires</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- FOOTER                                     -->
+<!-- ══════════════════════════════════════════ -->
+
+<footer>
+  <p>
+    <a href="https://github.com/wmacevoy/embedded-prolog">GitHub</a>
+    &nbsp;&middot;&nbsp; MIT License &nbsp;&middot;&nbsp; Zero dependencies
+  </p>
+</footer>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- SCRIPT                                     -->
+<!-- ══════════════════════════════════════════ -->
+
+<script type="module">
+
+// ── Prolog Engine (generator-based, for modern browsers) ─────
+
+class PrologEngine {
+  constructor() { this.clauses = []; this.builtins = {}; this._registerBuiltins(); }
+  static atom(name) { return { type: "atom", name }; }
+  static variable(name) { return { type: "var", name }; }
+  static compound(functor, args) { return { type: "compound", functor, args }; }
+  static num(n) { return { type: "num", value: n }; }
+  static list(items, tail = null) {
+    let l = tail || PrologEngine.atom("[]");
+    for (let i = items.length - 1; i >= 0; i--) l = PrologEngine.compound(".", [items[i], l]);
+    return l;
+  }
+  walk(term, subst) { while (term && term.type === "var" && subst.has(term.name)) term = subst.get(term.name); return term; }
+  deepWalk(term, subst) {
+    term = this.walk(term, subst); if (!term) return term;
+    if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(a => this.deepWalk(a, subst)));
+    return term;
+  }
+  unify(a, b, subst) {
+    a = this.walk(a, subst); b = this.walk(b, subst);
+    if (!a || !b) return null;
+    if (a.type === "var") { const s = new Map(subst); s.set(a.name, b); return s; }
+    if (b.type === "var") { const s = new Map(subst); s.set(b.name, a); return s; }
+    if (a.type === "atom" && b.type === "atom" && a.name === b.name) return subst;
+    if (a.type === "num" && b.type === "num" && a.value === b.value) return subst;
+    if (a.type === "compound" && b.type === "compound" && a.functor === b.functor && a.args.length === b.args.length) {
+      let s = subst;
+      for (let i = 0; i < a.args.length; i++) { s = this.unify(a.args[i], b.args[i], s); if (s === null) return null; }
+      return s;
+    }
+    return null;
+  }
+  addClause(head, body = []) { this.clauses.push({ head, body }); }
+  retractFirst(head) {
+    for (let i = 0; i < this.clauses.length; i++) {
+      const fresh = this._freshVars(this.clauses[i], { n: 9000 });
+      if (this.unify(head, fresh.head, new Map()) !== null) { this.clauses.splice(i, 1); return true; }
+    }
+    return false;
+  }
+  _freshVars(clause, counter) {
+    const mapping = {};
+    const rename = (term) => {
+      if (!term) return term;
+      if (term.type === "var") { if (!mapping[term.name]) mapping[term.name] = PrologEngine.variable(`_V${counter.n++}`); return mapping[term.name]; }
+      if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(rename));
+      return term;
+    };
+    return { head: rename(clause.head), body: clause.body.map(rename) };
+  }
+  *solve(goals, subst, counter, depth = 0) {
+    if (depth > 300) return;
+    if (goals.length === 0) { yield subst; return; }
+    const [goal, ...rest] = goals;
+    const resolved = this.deepWalk(goal, subst);
+    const key = resolved.type === "compound" ? `${resolved.functor}/${resolved.args.length}` : resolved.type === "atom" ? `${resolved.name}/0` : null;
+    if (key && this.builtins[key]) { yield* this.builtins[key](resolved, rest, subst, counter, depth); return; }
+    for (const clause of this.clauses) {
+      const fresh = this._freshVars(clause, counter);
+      const s = this.unify(resolved, fresh.head, subst);
+      if (s !== null) yield* this.solve([...fresh.body, ...rest], s, counter, depth + 1);
+    }
+  }
+  query(goal, limit = 50) {
+    const counter = { n: 0 }, results = [];
+    for (const subst of this.solve([goal], new Map(), counter)) { results.push(this.deepWalk(goal, subst)); if (results.length >= limit) break; }
+    return results;
+  }
+  queryFirst(goal) {
+    const counter = { n: 0 };
+    for (const subst of this.solve([goal], new Map(), counter)) return this.deepWalk(goal, subst);
+    return null;
+  }
+  _registerBuiltins() {
+    const self = this;
+    this.builtins["not/1"] = function*(g, r, s, c, d) { const inner = self.deepWalk(g.args[0], s); let f = false; for (const _ of self.solve([inner], s, c, d+1)) { f = true; break; } if (!f) yield* self.solve(r, s, c, d+1); };
+    this.builtins["\\+/1"] = this.builtins["not/1"];
+    this.builtins["=/2"] = function*(g, r, s, c, d) { const u = self.unify(g.args[0], g.args[1], s); if (u !== null) yield* self.solve(r, u, c, d+1); };
+    this.builtins["\\=/2"] = function*(g, r, s, c, d) { if (self.unify(g.args[0], g.args[1], s) === null) yield* self.solve(r, s, c, d+1); };
+    this.builtins["member/2"] = function*(g, r, s, c, d) { const el = g.args[0]; let li = self.deepWalk(g.args[1], s); while (li && li.type === "compound" && li.functor === "." && li.args.length === 2) { const u = self.unify(el, li.args[0], s); if (u !== null) yield* self.solve(r, u, c, d+1); li = self.deepWalk(li.args[1], s); } };
+    this.builtins["true/0"] = function*(g, r, s, c, d) { yield* self.solve(r, s, c, d+1); };
+    this.builtins["fail/0"] = function*() {};
+    this.builtins[",/2"] = function*(g, r, s, c, d) { yield* self.solve([g.args[0], g.args[1], ...r], s, c, d+1); };
+    this.builtins[";/2"] = function*(g, r, s, c, d) {
+      const l = self.deepWalk(g.args[0], s), ri = self.deepWalk(g.args[1], s);
+      if (l.type === "compound" && l.functor === "->" && l.args.length === 2) {
+        let f = false; for (const u of self.solve([l.args[0]], s, c, d+1)) { f = true; yield* self.solve([l.args[1], ...r], u, c, d+1); break; }
+        if (!f) yield* self.solve([ri, ...r], s, c, d+1);
+      } else { yield* self.solve([l, ...r], s, c, d+1); yield* self.solve([ri, ...r], s, c, d+1); }
+    };
+    this.builtins["->/2"] = function*(g, r, s, c, d) { for (const u of self.solve([g.args[0]], s, c, d+1)) { yield* self.solve([g.args[1], ...r], u, c, d+1); break; } };
+    this.builtins["is/2"] = function*(g, r, s, c, d) {
+      const lhs = g.args[0], rhs = self.deepWalk(g.args[1], s), val = evalArith(rhs);
+      if (val !== null) { const u = self.unify(lhs, PrologEngine.num(val), s); if (u !== null) yield* self.solve(r, u, c, d+1); }
+    };
+    for (const [op, fn] of [[">/2",(a,b)=>a>b],["</2",(a,b)=>a<b],[">=/2",(a,b)=>a>=b],["=</2",(a,b)=>a<=b],["=:=/2",(a,b)=>a===b],["=\\=/2",(a,b)=>a!==b]]) {
+      this.builtins[op] = function*(g, r, s, c, d) {
+        const a = evalArith(self.deepWalk(g.args[0], s)), b = evalArith(self.deepWalk(g.args[1], s));
+        if (a !== null && b !== null && fn(a, b)) yield* self.solve(r, s, c, d+1);
+      };
+    }
+    this.builtins["==/2"] = function*(g, r, s, c, d) { if (termEq(self.deepWalk(g.args[0], s), self.deepWalk(g.args[1], s))) yield* self.solve(r, s, c, d+1); };
+    this.builtins["\\==/2"] = function*(g, r, s, c, d) { if (!termEq(self.deepWalk(g.args[0], s), self.deepWalk(g.args[1], s))) yield* self.solve(r, s, c, d+1); };
+    this.builtins["assert/1"] = function*(g, r, s, c, d) { self.clauses.push({ head: self.deepWalk(g.args[0], s), body: [] }); yield* self.solve(r, s, c, d+1); };
+    this.builtins["assertz/1"] = this.builtins["assert/1"];
+    this.builtins["retract/1"] = function*(g, r, s, c, d) { if (self.retractFirst(self.deepWalk(g.args[0], s))) yield* self.solve(r, s, c, d+1); };
+    this.builtins["findall/3"] = function*(g, r, s, c, d) {
+      const tmpl = g.args[0], qg = self.deepWalk(g.args[1], s), bag = g.args[2], res = [];
+      for (const u of self.solve([qg], s, c, d+1)) res.push(self.deepWalk(tmpl, u));
+      const u2 = self.unify(bag, PrologEngine.list(res), s); if (u2 !== null) yield* self.solve(r, u2, c, d+1);
+    };
+    function evalArith(t) {
+      if (!t) return null; if (t.type === "num") return t.value;
+      if (t.type === "compound") {
+        const ops = {"+": (a,b)=>a+b, "-": (a,b)=>a-b, "*": (a,b)=>a*b};
+        if (ops[t.functor] && t.args.length === 2) { const a = evalArith(t.args[0]), b = evalArith(t.args[1]); return a !== null && b !== null ? ops[t.functor](a, b) : null; }
+        if (t.functor === "//" && t.args.length === 2) { const a = evalArith(t.args[0]), b = evalArith(t.args[1]); return a !== null && b !== null && b !== 0 ? Math.trunc(a/b) : null; }
+        if (t.functor === "mod" && t.args.length === 2) { const a = evalArith(t.args[0]), b = evalArith(t.args[1]); return a !== null && b !== null && b !== 0 ? a%b : null; }
+        if (t.functor === "-" && t.args.length === 1) { const a = evalArith(t.args[0]); return a !== null ? -a : null; }
+      }
+      return null;
+    }
+    function termEq(a, b) {
+      if (!a || !b || a.type !== b.type) return false;
+      if (a.type === "atom") return a.name === b.name;
+      if (a.type === "num") return a.value === b.value;
+      if (a.type === "var") return a.name === b.name;
+      if (a.type === "compound") { if (a.functor !== b.functor || a.args.length !== b.args.length) return false; return a.args.every((arg, i) => termEq(arg, b.args[i])); }
+      return false;
+    }
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function termToString(term) {
+  if (!term) return "?";
+  if (term.type === "atom") return term.name;
+  if (term.type === "num") return String(term.value);
+  if (term.type === "var") return term.name;
+  if (term.type === "compound") {
+    if (term.functor === "." && term.args.length === 2) {
+      const items = []; let cur = term;
+      while (cur.type === "compound" && cur.functor === "." && cur.args.length === 2) { items.push(termToString(cur.args[0])); cur = cur.args[1]; }
+      if (cur.type === "atom" && cur.name === "[]") return "[" + items.join(",") + "]";
+      return "[" + items.join(",") + "|" + termToString(cur) + "]";
+    }
+    return term.functor + "(" + term.args.map(termToString).join(",") + ")";
+  }
+  return "?";
+}
+
+function listToArray(term) {
+  const items = [];
+  while (term && term.type === "compound" && term.functor === "." && term.args.length === 2) { items.push(term.args[0]); term = term.args[1]; }
+  return items;
+}
+
+// Make available globally for playground eval
+window.PrologEngine = PrologEngine;
+window.termToString = termToString;
+window.listToArray = listToArray;
+
+// ── Playground examples ─────────────────────────────────────
+
+const EXAMPLES = [
+  {
+    name: "Facts & Queries",
+    code: `const engine = new PrologEngine();
+const { atom, variable, compound, num } = PrologEngine;
+
+// Add facts: parent(tom, bob). parent(tom, liz). parent(bob, ann).
+engine.addClause(compound("parent", [atom("tom"), atom("bob")]));
+engine.addClause(compound("parent", [atom("tom"), atom("liz")]));
+engine.addClause(compound("parent", [atom("bob"), atom("ann")]));
+
+// Query: ?- parent(tom, X).
+log("?- parent(tom, X).");
+const results = engine.query(
+  compound("parent", [atom("tom"), variable("X")])
+);
+for (const r of results) {
+  log("  X = " + r.args[1].name);
+}
+
+log("");
+log("?- parent(X, ann).");
+const r2 = engine.query(compound("parent", [variable("X"), atom("ann")]));
+for (const r of r2) {
+  log("  X = " + r.args[0].name);
+}`
+  },
+  {
+    name: "Rules",
+    code: `const engine = new PrologEngine();
+const { atom: a, variable: v, compound: c } = PrologEngine;
+
+// Facts
+engine.addClause(c("parent", [a("tom"), a("bob")]));
+engine.addClause(c("parent", [a("tom"), a("liz")]));
+engine.addClause(c("parent", [a("bob"), a("ann")]));
+engine.addClause(c("parent", [a("bob"), a("pat")]));
+
+// Rule: grandparent(X, Z) :- parent(X, Y), parent(Y, Z).
+engine.addClause(
+  c("grandparent", [v("X"), v("Z")]),
+  [c("parent", [v("X"), v("Y")]),
+   c("parent", [v("Y"), v("Z")])]
+);
+
+// Rule: sibling(X, Y) :- parent(P, X), parent(P, Y), X \\== Y.
+engine.addClause(
+  c("sibling", [v("X"), v("Y")]),
+  [c("parent", [v("P"), v("X")]),
+   c("parent", [v("P"), v("Y")]),
+   c("\\\\==", [v("X"), v("Y")])]
+);
+
+log("?- grandparent(tom, Who).");
+for (const r of engine.query(c("grandparent", [a("tom"), v("Who")]))) {
+  log("  Who = " + r.args[1].name);
+}
+
+log("");
+log("?- sibling(ann, Who).");
+for (const r of engine.query(c("sibling", [a("ann"), v("Who")]))) {
+  log("  Who = " + r.args[1].name);
+}`
+  },
+  {
+    name: "Dynamic State",
+    code: `const engine = new PrologEngine();
+const { atom: a, variable: v, compound: c, num: n } = PrologEngine;
+
+// Sensor readings as dynamic facts
+engine.addClause(c("sensor", [a("temp"), n(72)]));
+engine.addClause(c("sensor", [a("humidity"), n(45)]));
+
+// Alert rules
+engine.addClause(
+  c("alert", [a("high_temp")]),
+  [c("sensor", [a("temp"), v("T")]), c(">", [v("T"), n(80)])]
+);
+engine.addClause(
+  c("alert", [a("high_humidity")]),
+  [c("sensor", [a("humidity"), v("H")]), c(">", [v("H"), n(70)])]
+);
+
+log("--- Initial state ---");
+for (const r of engine.query(c("sensor", [v("S"), v("V")])))
+  log("  " + termToString(r));
+log("  Alerts: " + (engine.query(c("alert", [v("X")])).length || "none"));
+
+// Simulate sensor spike
+engine.retractFirst(c("sensor", [a("temp"), v("_")]));
+engine.addClause(c("sensor", [a("temp"), n(95)]));
+
+log("");
+log("--- After temp spike to 95 ---");
+for (const r of engine.query(c("sensor", [v("S"), v("V")])))
+  log("  " + termToString(r));
+log("  Alerts:");
+for (const r of engine.query(c("alert", [v("X")])))
+  log("    " + r.args[0].name);`
+  },
+  {
+    name: "Custom Builtins",
+    code: `const engine = new PrologEngine();
+const { atom: a, variable: v, compound: c, num: n } = PrologEngine;
+
+// Custom builtin: string_length/2
+// Matches an atom's name length against a number
+engine.builtins["string_length/2"] = function*(goal, rest, subst, counter, depth) {
+  const str = engine.deepWalk(goal.args[0], subst);
+  if (str.type === "atom") {
+    const s = engine.unify(goal.args[1], PrologEngine.num(str.name.length), subst);
+    if (s !== null) yield* engine.solve(rest, s, counter, depth + 1);
+  }
+};
+
+// Rule: short_name(N) :- name(N), string_length(N, L), L =< 3.
+engine.addClause(
+  c("short_name", [v("N")]),
+  [c("name", [v("N")]),
+   c("string_length", [v("N"), v("L")]),
+   c("=<", [v("L"), n(3)])]
+);
+
+// Add some names
+for (const name of ["ada", "al", "bob", "elizabeth", "io", "sue"])
+  engine.addClause(c("name", [a(name)]));
+
+log("?- short_name(X).");
+for (const r of engine.query(c("short_name", [v("X")])))
+  log("  X = " + r.args[0].name);
+
+log("");
+log("All names with lengths:");
+for (const r of engine.query(c("name", [v("N")]))) {
+  const name = r.args[0].name;
+  log("  " + name + " (" + name.length + " chars)");
+}`
+  }
+];
+
+// ── SolidJS ──────────────────────────────────────────────────
+
+import { createSignal, createMemo, createEffect } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+// ── Reactive Demo Component ─────────────────────────────────
+
+function ReactiveDemo() {
+  const engine = new PrologEngine();
+  const { atom: a, variable: v, compound: c, num: n } = PrologEngine;
+
+  // Initial sensor facts
+  engine.addClause(c("sensor", [a("temp"), n(72)]));
+  engine.addClause(c("sensor", [a("humidity"), n(45)]));
+  engine.addClause(c("sensor", [a("pressure"), n(1013)]));
+
+  // Alert rules
+  engine.addClause(c("alert", [a("high_temp")]),
+    [c("sensor", [a("temp"), v("T")]), c(">", [v("T"), n(80)])]);
+  engine.addClause(c("alert", [a("low_temp")]),
+    [c("sensor", [a("temp"), v("T")]), c("<", [v("T"), n(32)])]);
+  engine.addClause(c("alert", [a("high_humidity")]),
+    [c("sensor", [a("humidity"), v("H")]), c(">", [v("H"), n(70)])]);
+  engine.addClause(c("alert", [a("low_pressure")]),
+    [c("sensor", [a("pressure"), v("P")]), c("<", [v("P"), n(980)])]);
+
+  // Status rules
+  engine.addClause(c("status", [a("danger")]),
+    [c("alert", [a("high_temp")]), c("alert", [a("high_humidity")])]);
+  engine.addClause(c("status", [a("danger")]),
+    [c("alert", [a("low_temp")])]);
+  engine.addClause(c("status", [a("warning")]),
+    [c("alert", [v("_")]), c("not", [c("status", [a("danger")])])]);
+  engine.addClause(c("status", [a("normal")]),
+    [c("not", [c("alert", [v("_")])])]);
+
+  // Display message rules
+  engine.addClause(c("display", [a("DANGER: EXTREME CONDITIONS")]),
+    [c("status", [a("danger")])]);
+  engine.addClause(c("display", [a("WARNING: CHECK SENSORS")]),
+    [c("status", [a("warning")])]);
+  engine.addClause(c("display", [a("ALL SYSTEMS NORMAL")]),
+    [c("status", [a("normal")])]);
+
+  // SolidJS signals
+  const [gen, setGen] = createSignal(0);
+  const [temp, setTemp] = createSignal(72);
+  const [humidity, setHumidity] = createSignal(45);
+  const [pressure, setPressure] = createSignal(1013);
+
+  function updateSensor(name, value) {
+    engine.retractFirst(c("sensor", [a(name), v("_")]));
+    engine.addClause(c("sensor", [a(name), n(value)]));
+    setGen(g => g + 1);
+  }
+
+  // Reactive queries
+  const alerts = createMemo(() => {
+    gen();
+    return engine.query(c("alert", [v("X")])).map(r => r.args[0].name);
+  });
+
+  const status = createMemo(() => {
+    gen();
+    const r = engine.queryFirst(c("status", [v("S")]));
+    return r ? r.args[0].name : "unknown";
+  });
+
+  const displayMsg = createMemo(() => {
+    gen();
+    const r = engine.queryFirst(c("display", [v("M")]));
+    return r ? r.args[0].name : "";
+  });
+
+  const statusClass = createMemo(() => {
+    const s = status();
+    return s === "danger" ? "danger" : s === "warning" ? "warn" : "on";
+  });
+
+  return h("div", { class: "reactive-demo-layout" },
+    // Left: Interactive controls
+    h("div", { class: "demo-panel" },
+      h("div", { class: "demo-panel-header" }, "Sensor Inputs"),
+      h("div", { class: "demo-panel-body" },
+        // Temperature
+        h("div", { class: "sensor-row" },
+          h("div", { class: "sensor-label" },
+            h("span", { class: "name" }, "Temperature"),
+            h("span", { class: "value" }, () => temp() + "\u00B0F")
+          ),
+          h("input", {
+            type: "range", class: "sensor-slider",
+            min: 0, max: 120, value: temp,
+            oninput: (e) => { const v = +e.target.value; setTemp(v); updateSensor("temp", v); }
+          })
+        ),
+        // Humidity
+        h("div", { class: "sensor-row" },
+          h("div", { class: "sensor-label" },
+            h("span", { class: "name" }, "Humidity"),
+            h("span", { class: "value" }, () => humidity() + "%")
+          ),
+          h("input", {
+            type: "range", class: "sensor-slider",
+            min: 0, max: 100, value: humidity,
+            oninput: (e) => { const v = +e.target.value; setHumidity(v); updateSensor("humidity", v); }
+          })
+        ),
+        // Pressure
+        h("div", { class: "sensor-row" },
+          h("div", { class: "sensor-label" },
+            h("span", { class: "name" }, "Pressure"),
+            h("span", { class: "value" }, () => pressure() + " hPa")
+          ),
+          h("input", {
+            type: "range", class: "sensor-slider",
+            min: 950, max: 1050, value: pressure,
+            oninput: (e) => { const v = +e.target.value; setPressure(v); updateSensor("pressure", v); }
+          })
+        ),
+        // Status display
+        h("div", { class: "status-display" },
+          h("div", { class: "status-line" },
+            h("span", { class: () => "status-dot " + statusClass() }),
+            h("span", { style: () => "color:" + (status() === "danger" ? "var(--red)" : status() === "warning" ? "var(--amber)" : "var(--green)") }, displayMsg)
+          ),
+          h("div", { style: "margin-top: 8px; font-size: 11px; color: var(--text-faint);" },
+            () => {
+              const a = alerts();
+              return a.length ? "Active alerts: " + a.map(x => x.replace(/_/g, " ")).join(", ") : "No active alerts";
+            }
+          )
+        )
+      )
+    ),
+    // Right: Prolog source
+    h("div", { class: "demo-panel" },
+      h("div", { class: "demo-panel-header" }, "Prolog Rules (live)"),
+      h("div", { class: "demo-panel-body" },
+        h("pre", { class: "prolog-source" },
+          h("span", { class: "comment" }, "% Alert rules\n"),
+          h("span", { class: "head" }, "alert(high_temp)"), " :-\n    sensor(temp, T), T > 80.\n",
+          h("span", { class: "head" }, "alert(low_temp)"), " :-\n    sensor(temp, T), T < 32.\n",
+          h("span", { class: "head" }, "alert(high_humidity)"), " :-\n    sensor(humidity, H), H > 70.\n",
+          h("span", { class: "head" }, "alert(low_pressure)"), " :-\n    sensor(pressure, P), P < 980.\n\n",
+          h("span", { class: "comment" }, "% Status inference\n"),
+          h("span", { class: "head" }, "status(danger)"), " :-\n    alert(high_temp),\n    alert(high_humidity).\n",
+          h("span", { class: "head" }, "status(danger)"), " :-\n    alert(low_temp).\n",
+          h("span", { class: "head" }, "status(warning)"), " :-\n    alert(_),\n    \\+ status(danger).\n",
+          h("span", { class: "head" }, "status(normal)"), " :-\n    \\+ alert(_).\n\n",
+          h("span", { class: "comment" }, "% Display message\n"),
+          h("span", { class: "head" }, "display(Msg)"), " :-\n    status(S),\n    status_text(S, Msg).\n\n",
+          h("span", { class: "comment" }, "% Current facts (dynamic)\n"),
+          () => `sensor(temp, ${temp()}).\nsensor(humidity, ${humidity()}).\nsensor(pressure, ${pressure()}).`
+        )
+      )
+    )
+  );
+}
+
+// ── Playground Component ────────────────────────────────────
+
+function Playground() {
+  const [activeTab, setActiveTab] = createSignal(0);
+  const [code, setCode] = createSignal(EXAMPLES[0].code);
+  const [output, setOutput] = createSignal("// Hit Run or press Ctrl+Enter");
+  const [outputClass, setOutputClass] = createSignal("dim");
+
+  function switchTab(idx) {
+    setActiveTab(idx);
+    setCode(EXAMPLES[idx].code);
+    setOutput("// Hit Run or press Ctrl+Enter");
+    setOutputClass("dim");
+  }
+
+  function runCode() {
+    const lines = [];
+    const log = (...args) => lines.push(args.map(String).join(" "));
+    try {
+      const fn = new Function(
+        "PrologEngine", "termToString", "listToArray", "log",
+        code()
+      );
+      fn(PrologEngine, termToString, listToArray, log);
+      setOutput(lines.join("\n") || "(no output)");
+      setOutputClass("");
+    } catch (e) {
+      setOutput("Error: " + e.message);
+      setOutputClass("error");
+    }
+  }
+
+  function handleKeydown(e) {
+    // Ctrl+Enter or Cmd+Enter to run
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runCode();
+    }
+    // Tab key inserts spaces
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = e.target;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const val = ta.value;
+      ta.value = val.substring(0, start) + "  " + val.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + 2;
+      setCode(ta.value);
+    }
+  }
+
+  return h("div", null,
+    // Tabs
+    h("div", { class: "playground-tabs" },
+      () => EXAMPLES.map((ex, i) =>
+        h("button", {
+          class: () => "playground-tab" + (activeTab() === i ? " active" : ""),
+          onclick: () => switchTab(i)
+        }, ex.name)
+      )
+    ),
+    // Editor
+    h("div", { class: "playground-editor" },
+      h("textarea", {
+        class: "code-area",
+        value: code,
+        oninput: (e) => setCode(e.target.value),
+        onkeydown: handleKeydown,
+        spellcheck: false,
+        autocomplete: "off",
+        autocorrect: "off",
+        autocapitalize: "off",
+      }),
+      h("div", { class: "playground-toolbar" },
+        h("span", { class: "toolbar-hint" }, "Ctrl+Enter to run"),
+        h("button", { class: "run-btn", onclick: runCode }, "\u25B6 Run")
+      )
+    ),
+    // Output
+    h("div", { class: "output-panel" },
+      h("div", { class: "output-header" }, "Output"),
+      h("div", { class: () => "output-body " + outputClass() }, output)
+    )
+  );
+}
+
+// ── Mount ────────────────────────────────────────────────────
+
+render(ReactiveDemo, document.getElementById("reactive-demo"));
+render(Playground, document.getElementById("playground"));
+
+</script>
+</body>
+</html>

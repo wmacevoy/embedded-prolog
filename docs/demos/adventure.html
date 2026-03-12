@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>?- explore(obsidian_tower). — Solid + Prolog</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface-2: #16161f;
+    --border: #1e1e2a;
+    --border-bright: #2a2a3a;
+    --text: #c4c0d0;
+    --text-dim: #7a7690;
+    --text-faint: #44415a;
+    --amber: #e8a838;
+    --amber-glow: rgba(232,168,56,0.25);
+    --amber-dim: rgba(232,168,56,0.08);
+    --violet: #9d7aff;
+    --violet-glow: rgba(157,122,255,0.2);
+    --violet-dim: rgba(157,122,255,0.08);
+    --green: #4dcc6a;
+    --red: #e85454;
+    --cyan: #5cc8d4;
+    --rose: #d4708a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Crimson Pro', Georgia, serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Subtle noise texture */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 32px 24px 60px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 36px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--violet);
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    text-shadow: 0 0 20px var(--violet-glow);
+  }
+
+  .header h2 {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 0.02em;
+    text-shadow: 0 0 40px var(--amber-glow);
+  }
+
+  .header .tagline {
+    font-size: 15px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  /* Main layout */
+  .game-layout {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 24px;
+  }
+
+  @media (max-width: 700px) {
+    .game-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Narrative panel */
+  .narrative-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .room-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .room-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    background: var(--amber-dim);
+    border: 1px solid rgba(232,168,56,0.15);
+  }
+
+  .room-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .room-body {
+    padding: 20px;
+  }
+
+  .room-desc {
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    margin-top: 16px;
+  }
+
+  .items-list, .npcs-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .item-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--violet-dim);
+    color: var(--violet);
+    border: 1px solid rgba(157,122,255,0.15);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .item-tag:hover {
+    background: rgba(157,122,255,0.15);
+    border-color: rgba(157,122,255,0.3);
+  }
+
+  .npc-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(92,200,212,0.08);
+    color: var(--cyan);
+    border: 1px solid rgba(92,200,212,0.15);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .npc-tag:hover {
+    background: rgba(92,200,212,0.15);
+    border-color: rgba(92,200,212,0.3);
+  }
+
+  .npc-dialogue {
+    margin-top: 10px;
+    padding: 12px 16px;
+    background: rgba(92,200,212,0.05);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 8px 8px 0;
+    font-size: 16px;
+    font-style: italic;
+    color: var(--text);
+    line-height: 1.55;
+  }
+
+  /* Actions */
+  .actions-bar {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .action-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid;
+  }
+
+  .action-btn.move {
+    background: var(--amber-dim);
+    color: var(--amber);
+    border-color: rgba(232,168,56,0.2);
+  }
+  .action-btn.move:hover {
+    background: rgba(232,168,56,0.15);
+    border-color: rgba(232,168,56,0.4);
+  }
+
+  .action-btn.locked {
+    background: rgba(232,84,84,0.06);
+    color: var(--red);
+    border-color: rgba(232,84,84,0.15);
+    opacity: 0.7;
+  }
+  .action-btn.locked:hover {
+    opacity: 1;
+  }
+
+  .action-btn.take {
+    background: var(--violet-dim);
+    color: var(--violet);
+    border-color: rgba(157,122,255,0.2);
+  }
+  .action-btn.take:hover {
+    background: rgba(157,122,255,0.15);
+    border-color: rgba(157,122,255,0.4);
+  }
+
+  .action-btn.special {
+    background: rgba(232,168,56,0.12);
+    color: var(--amber);
+    border-color: rgba(232,168,56,0.3);
+    box-shadow: 0 0 12px var(--amber-glow);
+  }
+  .action-btn.special:hover {
+    box-shadow: 0 0 20px var(--amber-glow);
+  }
+
+  /* Sidebar */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .sidebar-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .sidebar-body {
+    padding: 10px 14px;
+  }
+
+  .inv-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .inv-item:last-child { border-bottom: none; }
+
+  .inv-item-name {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--violet);
+    font-size: 12px;
+  }
+
+  .inv-drop-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .inv-drop-btn:hover {
+    color: var(--red);
+    border-color: rgba(232,84,84,0.3);
+  }
+
+  .inv-empty {
+    font-size: 13px;
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 4px 0;
+  }
+
+  /* Event log */
+  .log-body {
+    max-height: 280px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .log-entry {
+    padding: 2px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .log-entry.action { color: var(--amber); }
+  .log-entry.success { color: var(--green); }
+  .log-entry.fail { color: var(--red); }
+  .log-entry.info { color: var(--text-dim); }
+  .log-entry.query { color: var(--violet); }
+
+  /* Win overlay */
+  .win-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10,10,15,0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: fadeIn 0.5s ease;
+  }
+
+  .win-card {
+    text-align: center;
+    padding: 48px 56px;
+    background: var(--surface);
+    border: 1px solid var(--amber);
+    border-radius: 16px;
+    box-shadow: 0 0 80px var(--amber-glow), 0 0 160px rgba(232,168,56,0.1);
+  }
+
+  .win-card h2 {
+    font-size: 32px;
+    color: var(--amber);
+    margin-bottom: 12px;
+    text-shadow: 0 0 30px var(--amber-glow);
+  }
+
+  .win-card p {
+    font-size: 17px;
+    color: var(--text);
+    line-height: 1.6;
+    max-width: 380px;
+    margin-bottom: 20px;
+  }
+
+  .win-card .btn-restart {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 28px;
+    border-radius: 8px;
+    background: var(--amber-dim);
+    color: var(--amber);
+    border: 1px solid rgba(232,168,56,0.3);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .win-card .btn-restart:hover {
+    background: rgba(232,168,56,0.2);
+    box-shadow: 0 0 20px var(--amber-glow);
+  }
+
+  /* Prolog source toggle */
+  .source-toggle {
+    text-align: center;
+    margin-top: 28px;
+  }
+
+  .source-panel {
+    margin-top: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .source-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .source-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .source-code {
+    padding: 14px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.65;
+    overflow: auto;
+    max-height: 460px;
+    color: var(--text);
+  }
+
+  .source-comment { color: #4a7a5a; }
+  .source-head { color: var(--violet); }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+// ── Prolog Engine (inlined, same as tictactoe.html) ─────────
+
+class PrologEngine {
+  constructor() { this.clauses = []; this.builtins = {}; this._output = []; this._registerBuiltins(); }
+  static atom(name) { return { type: "atom", name }; }
+  static variable(name) { return { type: "var", name }; }
+  static compound(functor, args) { return { type: "compound", functor, args }; }
+  static num(n) { return { type: "num", value: n }; }
+  static list(items, tail = null) {
+    let l = tail || PrologEngine.atom("[]");
+    for (let i = items.length - 1; i >= 0; i--) l = PrologEngine.compound(".", [items[i], l]);
+    return l;
+  }
+  walk(term, subst) { while (term && term.type === "var" && subst.has(term.name)) term = subst.get(term.name); return term; }
+  deepWalk(term, subst) { term = this.walk(term, subst); if (!term) return term; if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(a => this.deepWalk(a, subst))); return term; }
+  unify(a, b, subst) {
+    a = this.walk(a, subst); b = this.walk(b, subst);
+    if (!a || !b) return null;
+    if (a.type === "var") { const s = new Map(subst); s.set(a.name, b); return s; }
+    if (b.type === "var") { const s = new Map(subst); s.set(b.name, a); return s; }
+    if (a.type === "atom" && b.type === "atom" && a.name === b.name) return subst;
+    if (a.type === "num" && b.type === "num" && a.value === b.value) return subst;
+    if (a.type === "compound" && b.type === "compound" && a.functor === b.functor && a.args.length === b.args.length) {
+      let s = subst; for (let i = 0; i < a.args.length; i++) { s = this.unify(a.args[i], b.args[i], s); if (s === null) return null; } return s;
+    }
+    return null;
+  }
+  addClause(head, body = []) { this.clauses.push({ head, body }); }
+  retractFirst(head) {
+    for (let i = 0; i < this.clauses.length; i++) {
+      const fresh = this._freshVars(this.clauses[i], { n: 9000 });
+      if (this.unify(head, fresh.head, new Map()) !== null) { this.clauses.splice(i, 1); return true; }
+    }
+    return false;
+  }
+  _freshVars(clause, counter) {
+    const mapping = {};
+    const rename = (term) => {
+      if (!term) return term;
+      if (term.type === "var") { if (!mapping[term.name]) mapping[term.name] = PrologEngine.variable(`_V${counter.n++}`); return mapping[term.name]; }
+      if (term.type === "compound") return PrologEngine.compound(term.functor, term.args.map(rename));
+      return term;
+    };
+    return { head: rename(clause.head), body: clause.body.map(rename) };
+  }
+  *solve(goals, subst, counter, depth = 0) {
+    if (depth > 300) return;
+    if (goals.length === 0) { yield subst; return; }
+    const [goal, ...rest] = goals; const resolved = this.deepWalk(goal, subst);
+    const key = resolved.type === "compound" ? `${resolved.functor}/${resolved.args.length}` : resolved.type === "atom" ? `${resolved.name}/0` : null;
+    if (key && this.builtins[key]) { yield* this.builtins[key](resolved, rest, subst, counter, depth); return; }
+    for (const clause of this.clauses) {
+      const fresh = this._freshVars(clause, counter);
+      const s = this.unify(resolved, fresh.head, subst);
+      if (s !== null) yield* this.solve([...fresh.body, ...rest], s, counter, depth + 1);
+    }
+  }
+  query(goal, limit = 50) { const counter = { n: 0 }, results = []; for (const subst of this.solve([goal], new Map(), counter)) { results.push(this.deepWalk(goal, subst)); if (results.length >= limit) break; } return results; }
+  queryFirst(goal) { const counter = { n: 0 }; for (const subst of this.solve([goal], new Map(), counter)) return this.deepWalk(goal, subst); return null; }
+  _registerBuiltins() {
+    const self = this;
+    this.builtins["not/1"] = function*(g,r,s,c,d) { const inner = self.deepWalk(g.args[0],s); let f=false; for(const _ of self.solve([inner],s,c,d+1)){f=true;break;} if(!f) yield* self.solve(r,s,c,d+1); };
+    this.builtins["\\+/1"] = this.builtins["not/1"];
+    this.builtins["=/2"] = function*(g,r,s,c,d) { const u=self.unify(g.args[0],g.args[1],s); if(u!==null) yield* self.solve(r,u,c,d+1); };
+    this.builtins["\\=/2"] = function*(g,r,s,c,d) { if(self.unify(g.args[0],g.args[1],s)===null) yield* self.solve(r,s,c,d+1); };
+    this.builtins["member/2"] = function*(g,r,s,c,d) { const el=g.args[0]; let li=self.deepWalk(g.args[1],s); while(li&&li.type==="compound"&&li.functor==="."&&li.args.length===2){const u=self.unify(el,li.args[0],s);if(u!==null)yield* self.solve(r,u,c,d+1);li=self.deepWalk(li.args[1],s);} };
+    this.builtins["nth1/3"] = function*(g,r,s,c,d) { const idx=self.deepWalk(g.args[0],s);let li=self.deepWalk(g.args[1],s);const el=g.args[2];let i=1;while(li&&li.type==="compound"&&li.functor==="."&&li.args.length===2){if(idx.type==="num"){if(i===idx.value){const u=self.unify(el,li.args[0],s);if(u!==null)yield* self.solve(r,u,c,d+1);return;}}else{let u=self.unify(idx,PrologEngine.num(i),s);if(u!==null){u=self.unify(el,li.args[0],u);if(u!==null)yield* self.solve(r,u,c,d+1);}}li=self.deepWalk(li.args[1],s);i++;} };
+    this.builtins["replace/4"] = function*(g,r,s,c,d) { let li=self.deepWalk(g.args[0],s);const idx=self.deepWalk(g.args[1],s),val=self.deepWalk(g.args[2],s),res=g.args[3];if(idx.type!=="num")return;const items=[];while(li&&li.type==="compound"&&li.functor==="."&&li.args.length===2){items.push(li.args[0]);li=self.deepWalk(li.args[1],s);}if(idx.value<1||idx.value>items.length)return;const ni=[...items];ni[idx.value-1]=val;const u=self.unify(res,PrologEngine.list(ni),s);if(u!==null)yield* self.solve(r,u,c,d+1); };
+    this.builtins["is/2"] = function*(g,r,s,c,d) { const lhs=g.args[0],rhs=self.deepWalk(g.args[1],s),val=evalArith(rhs);if(val!==null){const u=self.unify(lhs,PrologEngine.num(val),s);if(u!==null)yield* self.solve(r,u,c,d+1);} };
+    for(const [op,fn] of [[">/2",(a,b)=>a>b],["</2",(a,b)=>a<b],[">=/2",(a,b)=>a>=b],["=</2",(a,b)=>a<=b],["=:=/2",(a,b)=>a===b],["=\\=/2",(a,b)=>a!==b]]){this.builtins[op]=function*(g,r,s,c,d){const a=evalArith(self.deepWalk(g.args[0],s)),b=evalArith(self.deepWalk(g.args[1],s));if(a!==null&&b!==null&&fn(a,b))yield* self.solve(r,s,c,d+1);};}
+    this.builtins["==/2"] = function*(g,r,s,c,d) { if(termEq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))yield* self.solve(r,s,c,d+1); };
+    this.builtins["\\==/2"] = function*(g,r,s,c,d) { if(!termEq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))yield* self.solve(r,s,c,d+1); };
+    this.builtins["true/0"] = function*(g,r,s,c,d) { yield* self.solve(r,s,c,d+1); };
+    this.builtins["fail/0"] = function*() {};
+    this.builtins[",/2"] = function*(g,r,s,c,d) { yield* self.solve([g.args[0],g.args[1],...r],s,c,d+1); };
+    this.builtins[";/2"] = function*(g,r,s,c,d) { const l=self.deepWalk(g.args[0],s),ri=self.deepWalk(g.args[1],s);if(l.type==="compound"&&l.functor==="->"&&l.args.length===2){let f=false;for(const u of self.solve([l.args[0]],s,c,d+1)){f=true;yield* self.solve([l.args[1],...r],u,c,d+1);break;}if(!f)yield* self.solve([ri,...r],s,c,d+1);}else{yield* self.solve([l,...r],s,c,d+1);yield* self.solve([ri,...r],s,c,d+1);} };
+    this.builtins["->/2"] = function*(g,r,s,c,d) { for(const u of self.solve([g.args[0]],s,c,d+1)){yield* self.solve([g.args[1],...r],u,c,d+1);break;} };
+    this.builtins["assert/1"] = function*(g,r,s,c,d) { self.clauses.push({head:self.deepWalk(g.args[0],s),body:[]});yield* self.solve(r,s,c,d+1); };
+    this.builtins["assertz/1"] = this.builtins["assert/1"];
+    this.builtins["retract/1"] = function*(g,r,s,c,d) { if(self.retractFirst(self.deepWalk(g.args[0],s)))yield* self.solve(r,s,c,d+1); };
+    this.builtins["findall/3"] = function*(g,r,s,c,d) { const tmpl=g.args[0],qg=self.deepWalk(g.args[1],s),bag=g.args[2],res=[];for(const u of self.solve([qg],s,c,d+1))res.push(self.deepWalk(tmpl,u));const u2=self.unify(bag,PrologEngine.list(res),s);if(u2!==null)yield* self.solve(r,u2,c,d+1); };
+    function evalArith(t){if(!t)return null;if(t.type==="num")return t.value;if(t.type==="compound"){const o={"+": (a,b)=>a+b,"-": (a,b)=>a-b,"*": (a,b)=>a*b};if(o[t.functor]&&t.args.length===2){const a=evalArith(t.args[0]),b=evalArith(t.args[1]);return a!==null&&b!==null?o[t.functor](a,b):null;}if(t.functor==="//"&&t.args.length===2){const a=evalArith(t.args[0]),b=evalArith(t.args[1]);return a!==null&&b!==null&&b!==0?Math.trunc(a/b):null;}if(t.functor==="mod"&&t.args.length===2){const a=evalArith(t.args[0]),b=evalArith(t.args[1]);return a!==null&&b!==null&&b!==0?a%b:null;}if(t.functor==="abs"&&t.args.length===1){const a=evalArith(t.args[0]);return a!==null?Math.abs(a):null;}if(t.functor==="-"&&t.args.length===1){const a=evalArith(t.args[0]);return a!==null?-a:null;}}return null;}
+    function termEq(a,b){if(!a||!b)return false;if(a.type!==b.type)return false;if(a.type==="atom")return a.name===b.name;if(a.type==="num")return a.value===b.value;if(a.type==="var")return a.name===b.name;if(a.type==="compound"){if(a.functor!==b.functor||a.args.length!==b.args.length)return false;return a.args.every((arg,i)=>termEq(arg,b.args[i]));}return false;}
+  }
+}
+
+const P = PrologEngine;
+const at = P.atom, v = P.variable, c = P.compound, n = P.num;
+function listToArray(term) { const items = []; while (term && term.type === "compound" && term.functor === "." && term.args.length === 2) { items.push(term.args[0]); term = term.args[1]; } return items; }
+function termStr(t) { return t ? (t.type === "atom" ? t.name : t.type === "num" ? String(t.value) : "?") : "?"; }
+
+// ── Adventure KB builder ────────────────────────────────────
+
+function buildAdventureKB() {
+  const e = new PrologEngine();
+  // Rooms
+  for (const [id, desc] of [
+    ["courtyard",    "A crumbling courtyard bathed in pale moonlight. Shattered flagstones crunch underfoot. A massive obsidian tower looms to the north, its surface drinking the light. An iron gate bars the way east."],
+    ["tower_base",   "The base of the obsidian tower. Spiral stairs wind upward into impenetrable darkness. Strange glyphs pulse with a faint indigo light along the walls. A doorway leads south to the courtyard."],
+    ["tower_top",    "The pinnacle of the tower. Wind howls through empty window frames, carrying the scent of ozone. A stone pedestal stands in the center, its surface covered in centuries of dust. Stairs lead down."],
+    ["garden",       "An overgrown garden behind the rusted iron gate. Phosphorescent mushrooms cast an eerie blue glow among the tangled weeds. A crumbling stone well sits in the far corner. The courtyard lies to the west."],
+    ["well_chamber", "You descend into the darkness of the well. Cool, mineral-scented air rises around you. A narrow tunnel opens into a hidden chamber where raw jewels glitter in the walls like frozen stars. A ladder leads up."],
+  ]) e.addClause(c("room_desc", [at(id), at(desc)]));
+
+  // Connections
+  for (const [from, dir, to] of [
+    ["courtyard","north","tower_base"],["tower_base","south","courtyard"],
+    ["tower_base","up","tower_top"],["tower_top","down","tower_base"],
+    ["courtyard","east","garden"],["garden","west","courtyard"],
+    ["garden","down","well_chamber"],["well_chamber","up","garden"],
+  ]) e.addClause(c("connection", [at(from), at(dir), at(to)]));
+
+  // Items
+  for (const [id, desc] of [
+    ["rusty_key",   "A heavy iron key, its teeth worn but still sharp. Flecks of rust coat its surface."],
+    ["crystal_orb", "A perfectly spherical crystal orb. Light bends strangely inside it, and it hums faintly when touched."],
+    ["old_scroll",  "A brittle parchment scroll. The faded text reads: 'Place the orb upon the pedestal to open the way between worlds.'"],
+    ["glowing_gem", "A gem that pulses with deep violet light, warm to the touch. It seems to respond to your heartbeat."],
+  ]) e.addClause(c("item_desc", [at(id), at(desc)]));
+
+  // Initial state
+  e.addClause(c("player_at", [at("courtyard")]));
+  e.addClause(c("item_at", [at("rusty_key"), at("tower_base")]));
+  e.addClause(c("item_at", [at("old_scroll"), at("tower_top")]));
+  e.addClause(c("item_at", [at("crystal_orb"), at("well_chamber")]));
+  e.addClause(c("item_at", [at("glowing_gem"), at("garden")]));
+  e.addClause(c("locked", [at("garden")]));
+
+  // NPC
+  e.addClause(c("npc_at", [at("raven"), at("tower_top")]));
+  e.addClause(c("npc_desc", [at("raven"), at("A large raven perches on the windowsill. Its obsidian feathers gleam, and it watches you with ancient, knowing eyes.")]));
+  e.addClause(c("npc_talk", [at("raven"), at("The raven caws excitedly: 'You found it! The orb... place it on the pedestal. Quickly, before the tower sleeps again!'")]),
+    [c("holding", [at("crystal_orb")])]);
+  e.addClause(c("npc_talk", [at("raven"), at("The raven tilts its head and speaks in a rasping voice: 'The scroll speaks of the deep places. Have you tried the old well in the garden?'")]),
+    [c("holding", [at("old_scroll")]), c("not", [c("holding", [at("crystal_orb")])])]);
+  e.addClause(c("npc_talk", [at("raven"), at("The raven fixes you with one bright eye: 'Seek the key first, wanderer. The garden holds secrets beneath its weeds.'")]),
+    [c("not", [c("holding", [at("old_scroll")])]), c("not", [c("holding", [at("crystal_orb")])])]);
+
+  // Rules
+  e.addClause(c("items_here", [v("R"), v("I")]), [c("findall", [v("X"), c("item_at", [v("X"), v("R")]), v("I")])]);
+  e.addClause(c("npcs_here", [v("R"), v("N")]), [c("findall", [v("X"), c("npc_at", [v("X"), v("R")]), v("N")])]);
+  e.addClause(c("exits", [v("R"), v("D")]), [c("findall", [v("X"), c("connection", [v("R"), v("X"), v("_")]), v("D")])]);
+  e.addClause(c("inventory", [v("I")]), [c("findall", [v("X"), c("holding", [v("X")]), v("I")])]);
+  e.addClause(c("can_go", [v("D"), v("Dest")]), [c("player_at",[v("H")]), c("connection",[v("H"),v("D"),v("Dest")]), c("not",[c("locked",[v("Dest")])])]);
+  e.addClause(c("can_go_locked", [v("D"), v("Dest")]), [c("player_at",[v("H")]), c("connection",[v("H"),v("D"),v("Dest")]), c("locked",[v("Dest")])]);
+  e.addClause(c("do_go", [v("D")]), [c("can_go",[v("D"),v("Dest")]), c("player_at",[v("H")]), c("retract",[c("player_at",[v("H")])]), c("assert",[c("player_at",[v("Dest")])])]);
+  e.addClause(c("do_take", [v("I")]), [c("player_at",[v("H")]), c("item_at",[v("I"),v("H")]), c("retract",[c("item_at",[v("I"),v("H")])]), c("assert",[c("holding",[v("I")])])]);
+  e.addClause(c("do_drop", [v("I")]), [c("holding",[v("I")]), c("player_at",[v("H")]), c("retract",[c("holding",[v("I")])]), c("assert",[c("item_at",[v("I"),v("H")])])]);
+  e.addClause(c("do_unlock", [v("D")]), [c("holding",[at("rusty_key")]), c("player_at",[v("H")]), c("connection",[v("H"),v("D"),v("Dest")]), c("locked",[v("Dest")]), c("retract",[c("locked",[v("Dest")])])]);
+  e.addClause(c("do_use_orb", []), [c("player_at",[at("tower_top")]), c("holding",[at("crystal_orb")]), c("retract",[c("holding",[at("crystal_orb")])]), c("assert",[c("orb_placed",[])])]);
+  e.addClause(c("game_won", []), [c("orb_placed", [])]);
+
+  return e;
+}
+
+// Room icons
+const roomIcons = { courtyard: "🏚", tower_base: "🗼", tower_top: "🌙", garden: "🌿", well_chamber: "💎" };
+const dirLabels = { north: "↑ North", south: "↓ South", east: "→ East", west: "← West", up: "▲ Up", down: "▼ Down" };
+
+// ── SolidJS App ─────────────────────────────────────────────
+
+import { createSignal, createMemo, createEffect, For, Show } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+function App() {
+  let engine = buildAdventureKB();
+  const [gen, setGen] = createSignal(0);
+  const bump = () => setGen(g => g + 1);
+  const [log, setLog] = createSignal([]);
+  const [talkingTo, setTalkingTo] = createSignal(null);
+  const [showSource, setShowSource] = createSignal(false);
+  const [inspecting, setInspecting] = createSignal(null);
+  let logEnd;
+
+  const addLog = (msg, type = "info") => setLog(prev => [...prev.slice(-40), { msg, type }]);
+
+  // ── Reactive queries (re-run when gen changes) ──────────
+  const currentRoom = createMemo(() => { gen(); const r = engine.queryFirst(c("player_at", [v("R")])); return r ? r.args[0].name : "courtyard"; });
+  const roomDesc = createMemo(() => { gen(); const r = engine.queryFirst(c("room_desc", [at(currentRoom()), v("D")])); return r ? r.args[1].name : ""; });
+  const itemsHere = createMemo(() => { gen(); const r = engine.queryFirst(c("items_here", [at(currentRoom()), v("I")])); return r ? listToArray(r.args[1]).map(t => t.name) : []; });
+  const npcsHere = createMemo(() => { gen(); const r = engine.queryFirst(c("npcs_here", [at(currentRoom()), v("N")])); return r ? listToArray(r.args[1]).map(t => t.name) : []; });
+  const inventory = createMemo(() => { gen(); const r = engine.queryFirst(c("inventory", [v("I")])); return r ? listToArray(r.args[1]).map(t => t.name) : []; });
+  const exits = createMemo(() => {
+    gen();
+    const unlocked = engine.query(c("can_go", [v("D"), v("Dest")]));
+    const locked = engine.query(c("can_go_locked", [v("D"), v("Dest")]));
+    return {
+      open: unlocked.map(r => ({ dir: r.args[0].name, dest: r.args[1].name })),
+      locked: locked.map(r => ({ dir: r.args[0].name, dest: r.args[1].name })),
+    };
+  });
+  const gameWon = createMemo(() => { gen(); return engine.queryFirst(c("game_won", [])) !== null; });
+  const canUseOrb = createMemo(() => { gen(); return currentRoom() === "tower_top" && inventory().includes("crystal_orb"); });
+
+  createEffect(() => { log(); setTimeout(() => logEnd?.scrollIntoView({ behavior: "smooth" }), 50); });
+
+  // ── Actions ───────────────────────────────────────────────
+  function doGo(dir) {
+    addLog(`?- do_go(${dir}).`, "query");
+    const r = engine.queryFirst(c("do_go", [at(dir)]));
+    bump();
+    setTalkingTo(null); setInspecting(null);
+    if (r) addLog(`Moved ${dir}.`, "success");
+    else addLog(`Cannot go ${dir}.`, "fail");
+  }
+
+  function doTake(item) {
+    addLog(`?- do_take(${item}).`, "query");
+    engine.queryFirst(c("do_take", [at(item)]));
+    bump();
+    setInspecting(null);
+    addLog(`Picked up ${item.replace(/_/g, " ")}.`, "success");
+  }
+
+  function doDrop(item) {
+    addLog(`?- do_drop(${item}).`, "query");
+    engine.queryFirst(c("do_drop", [at(item)]));
+    bump();
+    addLog(`Dropped ${item.replace(/_/g, " ")}.`, "info");
+  }
+
+  function doUnlock(dir) {
+    addLog(`?- do_unlock(${dir}).`, "query");
+    const r = engine.queryFirst(c("do_unlock", [at(dir)]));
+    bump();
+    if (r) addLog(`Unlocked the gate to the ${dir}!`, "success");
+    else addLog("You don't have the right key.", "fail");
+  }
+
+  function doTalk(npc) {
+    addLog(`?- npc_talk(${npc}, Text).`, "query");
+    const r = engine.queryFirst(c("npc_talk", [at(npc), v("T")]));
+    if (r) { setTalkingTo(r.args[1].name); addLog(`Spoke with ${npc}.`, "success"); }
+    else { setTalkingTo(null); addLog(`${npc} says nothing.`, "info"); }
+  }
+
+  function doUseOrb() {
+    addLog("?- do_use_orb.", "query");
+    engine.queryFirst(c("do_use_orb", []));
+    bump();
+    addLog("Placed the crystal orb on the pedestal!", "success");
+  }
+
+  function doInspect(item) {
+    const r = engine.queryFirst(c("item_desc", [at(item), v("D")]));
+    setInspecting(r ? { name: item, desc: r.args[1].name } : null);
+  }
+
+  function restart() {
+    engine = buildAdventureKB();
+    setGen(0); bump();
+    setLog([]); setTalkingTo(null); setInspecting(null);
+    addLog("% A new journey begins...", "info");
+  }
+
+  const prettyRoom = (name) => name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const prettyItem = (name) => name.replace(/_/g, " ");
+
+  const PROLOG_SRC = `% The Obsidian Tower — Adventure in Prolog
+% Dynamic: player_at/1, item_at/2, holding/1, locked/1
+
+room_desc(courtyard, 'A crumbling courtyard...').
+room_desc(tower_base, 'The base of the tower...').
+connection(courtyard, north, tower_base).
+% ...
+
+% --- NPC dialogue (context-sensitive) ---
+npc_talk(raven, 'You found the orb!') :-
+    holding(crystal_orb).
+npc_talk(raven, 'Try the well...') :-
+    holding(old_scroll), \\+ holding(crystal_orb).
+npc_talk(raven, 'Seek the key...') :-
+    \\+ holding(old_scroll), \\+ holding(crystal_orb).
+
+% --- Reactive queries ---
+items_here(Room, Items) :-
+    findall(I, item_at(I, Room), Items).
+exits(Room, Dirs) :-
+    findall(D, connection(Room, D, _), Dirs).
+inventory(Items) :-
+    findall(I, holding(I), Items).
+
+% --- Movement ---
+can_go(Dir, Dest) :-
+    player_at(Here),
+    connection(Here, Dir, Dest),
+    \\+ locked(Dest).
+
+do_go(Dir) :-
+    can_go(Dir, Dest),
+    player_at(Here),
+    retract(player_at(Here)),
+    assert(player_at(Dest)).
+
+% --- Items ---
+do_take(Item) :-
+    player_at(Here), item_at(Item, Here),
+    retract(item_at(Item, Here)),
+    assert(holding(Item)).
+
+% --- Unlock with key ---
+do_unlock(Dir) :-
+    holding(rusty_key),
+    player_at(Here),
+    connection(Here, Dir, Dest),
+    locked(Dest),
+    retract(locked(Dest)).
+
+% --- Win condition ---
+do_use_orb :-
+    player_at(tower_top),
+    holding(crystal_orb),
+    retract(holding(crystal_orb)),
+    assert(orb_placed).
+game_won :- orb_placed.`;
+
+  // ── Render ────────────────────────────────────────────────
+  return h("div", { class: "container" },
+    // Win overlay
+    () => gameWon() ? h("div", { class: "win-overlay" },
+      h("div", { class: "win-card" },
+        h("h2", null, "✦ The Tower Awakens ✦"),
+        h("p", null, "The crystal orb blazes with light atop the pedestal. The glyphs on the walls flare to life, and the obsidian tower begins to hum with ancient power. A doorway of pure light opens before you — a passage between worlds."),
+        h("p", null, "You have completed The Obsidian Tower."),
+        h("button", { class: "btn-restart", onclick: restart }, "Play Again")
+      )
+    ) : null,
+
+    // Header
+    h("div", { class: "header" },
+      h("h1", null, "?- explore(obsidian_tower)."),
+      h("h2", null, "The Obsidian Tower"),
+      h("p", { class: "tagline" }, "A text adventure powered by Prolog inference")
+    ),
+
+    // Game layout
+    h("div", { class: "game-layout" },
+      // Main narrative panel
+      h("div", { class: "narrative-panel" },
+        h("div", { class: "room-header" },
+          h("div", { class: "room-icon" }, () => roomIcons[currentRoom()] || "📍"),
+          h("div", { class: "room-name" }, () => prettyRoom(currentRoom()))
+        ),
+        h("div", { class: "room-body" },
+          h("p", { class: "room-desc" }, roomDesc),
+
+          // Items in room
+          () => itemsHere().length > 0 ? [
+            h("div", { class: "section-label" }, "Items"),
+            h("div", { class: "items-list" },
+              () => itemsHere().map(item =>
+                h("span", { class: "item-tag", onclick: () => doInspect(item) }, prettyItem(item))
+              )
+            )
+          ] : null,
+
+          // NPCs
+          () => npcsHere().length > 0 ? [
+            h("div", { class: "section-label" }, "Characters"),
+            h("div", { class: "npcs-list" },
+              () => npcsHere().map(npc =>
+                h("span", { class: "npc-tag", onclick: () => doTalk(npc) }, prettyItem(npc))
+              )
+            )
+          ] : null,
+
+          // NPC dialogue
+          () => talkingTo() ? h("div", { class: "npc-dialogue" }, talkingTo()) : null,
+
+          // Item inspection
+          () => inspecting() ? h("div", { style: "margin-top: 10px; padding: 10px 14px; background: var(--violet-dim); border-left: 3px solid var(--violet); border-radius: 0 8px 8px 0; font-size: 15px; line-height: 1.55;" },
+            inspecting().desc
+          ) : null,
+        ),
+
+        // Action bar
+        h("div", { class: "actions-bar" },
+          // Movement
+          () => exits().open.map(e =>
+            h("button", { class: "action-btn move", onclick: () => doGo(e.dir) }, dirLabels[e.dir] || e.dir)
+          ),
+          // Locked exits
+          () => exits().locked.map(e =>
+            h("button", { class: "action-btn locked", onclick: () => {
+              if (inventory().includes("rusty_key")) doUnlock(e.dir);
+              else addLog("The gate is locked. You need a key.", "fail");
+            }}, `🔒 ${dirLabels[e.dir] || e.dir}`)
+          ),
+          // Take items
+          () => itemsHere().map(item =>
+            h("button", { class: "action-btn take", onclick: () => doTake(item) }, `Take ${prettyItem(item)}`)
+          ),
+          // Use orb
+          () => canUseOrb() ? h("button", { class: "action-btn special", onclick: doUseOrb }, "✦ Place Orb on Pedestal") : null,
+        ),
+      ),
+
+      // Sidebar
+      h("div", { class: "sidebar" },
+        // Inventory
+        h("div", { class: "sidebar-panel" },
+          h("div", { class: "sidebar-header" }, "Inventory"),
+          h("div", { class: "sidebar-body" },
+            () => inventory().length === 0
+              ? h("div", { class: "inv-empty" }, "Empty")
+              : inventory().map(item =>
+                  h("div", { class: "inv-item" },
+                    h("span", { class: "inv-item-name", onclick: () => doInspect(item), style: "cursor:pointer" }, prettyItem(item)),
+                    h("button", { class: "inv-drop-btn", onclick: () => doDrop(item) }, "drop")
+                  )
+                ),
+          ),
+        ),
+
+        // Inference log
+        h("div", { class: "sidebar-panel" },
+          h("div", { class: "sidebar-header" }, "Inference Log"),
+          h("div", { class: "sidebar-body log-body" },
+            () => log().map((entry, i) =>
+              h("div", { class: "log-entry " + entry.type }, entry.msg)
+            ),
+            h("div", { ref: (el) => logEnd = el })
+          ),
+        ),
+      ),
+    ),
+
+    // Source toggle
+    h("div", { class: "source-toggle" },
+      h("button", {
+        class: () => "action-btn" + (showSource() ? " move" : ""),
+        style: "margin-top: 20px",
+        onclick: () => setShowSource(!showSource())
+      }, () => (showSource() ? "Hide" : "Show") + " Prolog Source")
+    ),
+
+    () => showSource() ? h("div", { class: "source-panel" },
+      h("div", { class: "source-header" },
+        h("span", { class: "source-title" }, "obsidian_tower.pl"),
+      ),
+      h("pre", { class: "source-code" },
+        () => PROLOG_SRC.split("\n").map((line, i) => {
+          const isCom = line.trimStart().startsWith("%");
+          const isHead = /^[a-z]\w*[\(:]/.test(line.trimStart()) || /^[a-z]\w* :-/.test(line.trimStart());
+          return h("div", { class: isCom ? "source-comment" : isHead ? "source-head" : "" },
+            h("span", { style: "color: var(--border-bright); user-select: none; margin-right: 12px; display: inline-block; width: 24px; text-align: right;" }, i + 1),
+            " " + line
+          );
+        })
+      )
+    ) : null,
+  );
+}
+
+render(App, document.getElementById("app"));
+</script>
+</body>
+</html>
