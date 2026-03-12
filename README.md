@@ -6,7 +6,7 @@ systems, web apps, and everything in between.
 Python.  JavaScript.  C.  Same engine, same API, same tests.
 
 ```
-./test.sh          # 58 tests: 19 C + 17 Python + 22 JavaScript
+./test.sh          # 114 tests: 19 C + 45 Python + 50 JavaScript
 ```
 
 Zero dependencies.  No package managers.  No build tools.
@@ -43,6 +43,10 @@ examples/
   vending/                Vending machine controller
     vending.py + test.py      Python: 17 tests
     vending-kb.js + test.js   JavaScript: 22 tests
+  router/                 IoT message router (failover)
+    router.py + test.py       Python: 28 tests
+  margin/                 Margin trading triggers
+    margin-kb.js + test.js    JavaScript: 28 tests (QuickJS BigDecimal)
   form/
     index.html            SolidJS form validator (browser)
   tictactoe/              (tic-tac-toe demo)

@@ -59,6 +59,8 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
   if [ -n "$JS" ]; then
     run "JS vending machine ($JS, 22 tests)" \
       "$JS examples/vending/test.js"
+    run "JS margin trading ($JS, 28 tests)" \
+      "$JS examples/margin/test.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi
