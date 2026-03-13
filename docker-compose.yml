@@ -1,0 +1,91 @@
+## Run any example:
+##   docker compose run test           # all tests (C + Python + JS)
+##   docker compose run test-c         # C native core only
+##   docker compose run test-python    # Python examples only
+##   docker compose run test-js        # JS examples only
+##
+## Individual examples:
+##   docker compose run vending-js
+##   docker compose run vending-py
+##   docker compose run margin
+##   docker compose run router
+##   docker compose run nng-mesh
+##   docker compose run sync-todo
+##   docker compose run greenhouse-test
+##
+## HTML demos (browser at http://localhost:8000):
+##   docker compose up demos
+##
+## Sync-todo live app (browser at http://localhost:4000):
+##   docker compose up sync-todo-app
+##
+## Greenhouse mesh (multi-runtime, browser at http://localhost:3000):
+##   docker compose -f examples/greenhouse/docker-compose.yml up --build
+
+services:
+
+  # ── Full test suite ─────────────────────────────────────
+  test:
+    build: .
+    command: ./test.sh
+
+  test-c:
+    build: .
+    command: ./test.sh c
+
+  test-python:
+    build: .
+    command: ./test.sh python
+
+  test-js:
+    build: .
+    command: ./test.sh js
+
+  # ── Individual JS examples ──────────────────────────────
+  vending-js:
+    build: .
+    command: node examples/vending/test.js
+
+  margin:
+    build: .
+    command: node examples/margin/test.js
+
+  nng-mesh:
+    build: .
+    command: node examples/nng-mesh/test.js
+
+  sync-todo:
+    build: .
+    command: node examples/sync-todo/test.js
+
+  greenhouse-test:
+    build: .
+    command: node examples/greenhouse/test.js
+
+  # ── Individual Python examples ──────────────────────────
+  vending-py:
+    build: .
+    command: python3 examples/vending/test.py
+
+  router:
+    build: .
+    command: python3 examples/router/test.py
+
+  # ── HTML demos (static file server) ─────────────────────
+  # Browse:
+  #   http://localhost:8000/examples/adventure/adventure.html
+  #   http://localhost:8000/examples/form/index.html
+  #   http://localhost:8000/examples/tictactoe/tictactoe.html
+  demos:
+    build: .
+    command: python3 -m http.server 8000
+    ports:
+      - "8000:8000"
+
+  # ── Sync-todo live app (server + client) ────────────────
+  # Browse: http://localhost:4000
+  sync-todo-app:
+    build: .
+    command: node examples/sync-todo/server.js
+    ports:
+      - "4000:4000"
