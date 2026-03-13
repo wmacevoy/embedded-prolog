@@ -42,6 +42,7 @@ player_at(courtyard).
 item_at(rusty_key, tower_base).
 item_at(old_scroll, tower_top).
 item_at(crystal_orb, well_chamber).
+item_at(glowing_gem, garden).
 locked(garden).
 
 % --- NPC ---

@@ -75,6 +75,8 @@ opponent(x, o).
 opponent(o, x).
 `;
 
+export const TICTACTOE_PROLOG_SOURCE = TICTACTOE_RULES;
+
 export function buildTicTacToeKB() {
   const engine = new PrologEngine();
   loadString(engine, TICTACTOE_RULES);

@@ -397,238 +397,84 @@ body::before {
 <script type="module">
 
 // ══════════════════════════════════════════════════════════════
-// PROLOG ENGINE (inlined, same CPS engine from prolog-quickjs)
+// PROLOG ENGINE (imported from src/)
 // ══════════════════════════════════════════════════════════════
 
-class PrologEngine{constructor(){this.clauses=[];this.builtins={};this._registerBuiltins()}
-static atom(n){return{type:"atom",name:n}}static variable(n){return{type:"var",name:n}}static compound(f,a){return{type:"compound",functor:f,args:a}}static num(n){return{type:"num",value:n}}
-static list(items,tail){var l=tail||PrologEngine.atom("[]");for(var i=items.length-1;i>=0;i--)l=PrologEngine.compound(".",[items[i],l]);return l}
-walk(t,s){while(t&&t.type==="var"&&s.has(t.name))t=s.get(t.name);return t}
-deepWalk(t,s){t=this.walk(t,s);if(!t)return t;if(t.type==="compound"){var a=[];for(var i=0;i<t.args.length;i++)a.push(this.deepWalk(t.args[i],s));return PrologEngine.compound(t.functor,a)}return t}
-unify(a,b,s){a=this.walk(a,s);b=this.walk(b,s);if(!a||!b)return null;if(a.type==="var"){var r=new Map(s);r.set(a.name,b);return r}if(b.type==="var"){var r=new Map(s);r.set(b.name,a);return r}if(a.type==="atom"&&b.type==="atom"&&a.name===b.name)return s;if(a.type==="num"&&b.type==="num"&&a.value===b.value)return s;if(a.type==="compound"&&b.type==="compound"&&a.functor===b.functor&&a.args.length===b.args.length){var r=s;for(var i=0;i<a.args.length;i++){r=this.unify(a.args[i],b.args[i],r);if(r===null)return null}return r}return null}
-addClause(h,b){this.clauses.push({head:h,body:b||[]})}
-retractFirst(h){for(var i=0;i<this.clauses.length;i++){var f=this._freshVars(this.clauses[i],{n:9000});if(this.unify(h,f.head,new Map())!==null){this.clauses.splice(i,1);return true}}return false}
-_freshVars(cl,ctr){var m={};function r(t){if(!t)return t;if(t.type==="var"){if(!m[t.name])m[t.name]=PrologEngine.variable("_V"+(ctr.n++));return m[t.name]}if(t.type==="compound"){var a=[];for(var i=0;i<t.args.length;i++)a.push(r(t.args[i]));return PrologEngine.compound(t.functor,a)}return t}var nb=[];for(var i=0;i<cl.body.length;i++)nb.push(r(cl.body[i]));return{head:r(cl.head),body:nb}}
-solve(goals,subst,counter,depth,onSolution){if(depth>300)return;if(goals.length===0){onSolution(subst);return}var goal=goals[0],rest=goals.slice(1),resolved=this.deepWalk(goal,subst);var key=resolved.type==="compound"?resolved.functor+"/"+resolved.args.length:resolved.type==="atom"?resolved.name+"/0":null;if(key&&this.builtins[key]){this.builtins[key](resolved,rest,subst,counter,depth,onSolution);return}for(var i=0;i<this.clauses.length;i++){var fresh=this._freshVars(this.clauses[i],counter);var s=this.unify(resolved,fresh.head,subst);if(s!==null)this.solve(fresh.body.concat(rest),s,counter,depth+1,onSolution)}}
-query(goal,limit){var max=limit||50,counter={n:0},results=[],self=this;this.solve([goal],new Map(),counter,0,function(s){results.push(self.deepWalk(goal,s))});return results.slice(0,max)}
-queryFirst(goal){var counter={n:0},self=this,FOUND={};try{this.solve([goal],new Map(),counter,0,function(s){FOUND.result=self.deepWalk(goal,s);throw FOUND})}catch(e){if(e===FOUND)return FOUND.result;throw e}return null}
-_registerBuiltins(){var self=this;
-this.builtins["not/1"]=function(g,r,s,c,d,cb){var inner=self.deepWalk(g.args[0],s),found=false;self.solve([inner],s,c,d+1,function(){found=true});if(!found)self.solve(r,s,c,d+1,cb)};
-this.builtins["\\+/1"]=this.builtins["not/1"];
-this.builtins["=/2"]=function(g,r,s,c,d,cb){var u=self.unify(g.args[0],g.args[1],s);if(u!==null)self.solve(r,u,c,d+1,cb)};
-this.builtins["\\=/2"]=function(g,r,s,c,d,cb){if(self.unify(g.args[0],g.args[1],s)===null)self.solve(r,s,c,d+1,cb)};
-this.builtins["member/2"]=function(g,r,s,c,d,cb){var el=g.args[0],li=self.deepWalk(g.args[1],s);while(li&&li.type==="compound"&&li.functor==="."&&li.args.length===2){var u=self.unify(el,li.args[0],s);if(u!==null)self.solve(r,u,c,d+1,cb);li=self.deepWalk(li.args[1],s)}};
-this.builtins["true/0"]=function(g,r,s,c,d,cb){self.solve(r,s,c,d+1,cb)};
-this.builtins["fail/0"]=function(){};
-this.builtins[",/2"]=function(g,r,s,c,d,cb){self.solve([g.args[0],g.args[1]].concat(r),s,c,d+1,cb)};
-this.builtins[";/2"]=function(g,r,s,c,d,cb){var l=self.deepWalk(g.args[0],s),ri=self.deepWalk(g.args[1],s);if(l.type==="compound"&&l.functor==="->"&&l.args.length===2){var f=false;self.solve([l.args[0]],s,c,d+1,function(u){if(!f){f=true;self.solve([l.args[1]].concat(r),u,c,d+1,cb)}});if(!f)self.solve([ri].concat(r),s,c,d+1,cb)}else{self.solve([l].concat(r),s,c,d+1,cb);self.solve([ri].concat(r),s,c,d+1,cb)}};
-this.builtins["->/2"]=function(g,r,s,c,d,cb){var f=false;self.solve([g.args[0]],s,c,d+1,function(u){if(!f){f=true;self.solve([g.args[1]].concat(r),u,c,d+1,cb)}})};
-this.builtins["is/2"]=function(g,r,s,c,d,cb){var lhs=g.args[0],rhs=self.deepWalk(g.args[1],s),val=ev(rhs);if(val!==null){var u=self.unify(lhs,PrologEngine.num(val),s);if(u!==null)self.solve(r,u,c,d+1,cb)}};
-for(var p of [[">/2",(a,b)=>a>b],["</2",(a,b)=>a<b],[">=/2",(a,b)=>a>=b],["=</2",(a,b)=>a<=b],["=:=/2",(a,b)=>a===b],["=\\=/2",(a,b)=>a!==b]]){(function(op,fn){self.builtins[op]=function(g,r,s,c,d,cb){var a=ev(self.deepWalk(g.args[0],s)),b=ev(self.deepWalk(g.args[1],s));if(a!==null&&b!==null&&fn(a,b))self.solve(r,s,c,d+1,cb)}})(p[0],p[1])}
-this.builtins["==/2"]=function(g,r,s,c,d,cb){if(teq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))self.solve(r,s,c,d+1,cb)};
-this.builtins["\\==/2"]=function(g,r,s,c,d,cb){if(!teq(self.deepWalk(g.args[0],s),self.deepWalk(g.args[1],s)))self.solve(r,s,c,d+1,cb)};
-this.builtins["assert/1"]=function(g,r,s,c,d,cb){self.clauses.push({head:self.deepWalk(g.args[0],s),body:[]});self.solve(r,s,c,d+1,cb)};
-this.builtins["assertz/1"]=this.builtins["assert/1"];
-this.builtins["retract/1"]=function(g,r,s,c,d,cb){if(self.retractFirst(self.deepWalk(g.args[0],s)))self.solve(r,s,c,d+1,cb)};
-this.builtins["findall/3"]=function(g,r,s,c,d,cb){var tmpl=g.args[0],qg=self.deepWalk(g.args[1],s),bag=g.args[2],res=[];self.solve([qg],s,c,d+1,function(u){res.push(self.deepWalk(tmpl,u))});var u2=self.unify(bag,PrologEngine.list(res),s);if(u2!==null)self.solve(r,u2,c,d+1,cb)};
-function ev(t){if(!t)return null;if(t.type==="num")return t.value;if(t.type!=="compound")return null;var f=t.functor,a=t.args;if(f==="+"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x+y:null}if(f==="-"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x-y:null}if(f==="*"&&a.length===2){var x=ev(a[0]),y=ev(a[1]);return x!==null&&y!==null?x*y:null}return null}
-function teq(a,b){if(!a||!b||a.type!==b.type)return false;if(a.type==="atom")return a.name===b.name;if(a.type==="num")return a.value===b.value;if(a.type==="compound"){if(a.functor!==b.functor||a.args.length!==b.args.length)return false;for(var i=0;i<a.args.length;i++)if(!teq(a.args[i],b.args[i]))return false;return true}return false}
-}}
-function listToArray(t){var r=[];while(t&&t.type==="compound"&&t.functor==="."&&t.args.length===2){r.push(t.args[0]);t=t.args[1]}return r}
+import { PrologEngine, listToArray } from "../../src/prolog-engine.js";
+import { loadString } from "../../src/loader.js";
 
-const P=PrologEngine, at=P.atom, v=P.variable, c=P.compound, n=P.num;
+const P = PrologEngine, at = P.atom, v = P.variable, c = P.compound, n = P.num;
 
 // ══════════════════════════════════════════════════════════════
 // FORM VALIDATION KNOWLEDGE BASE
 // ══════════════════════════════════════════════════════════════
 
+const FORM_RULES = `
+% Field value storage (dynamic, replaced on each keystroke)
+field(name, '').
+field(email, '').
+field(password, '').
+field(confirm, '').
+field(phone, '').
+field(country, '').
+field(zip, '').
+
+% Validation rules
+valid(name) :- field(name, V), str_len(V, L), L >= 2.
+valid(email) :- field(email, V), str_contains(V, '@'), str_contains(V, '.'), str_len(V, L), L >= 5.
+valid(password) :- field(password, V), str_len(V, L), L >= 8.
+valid(confirm) :- field(password, P), field(confirm, C), P == C, str_len(C, L), L > 0.
+valid(phone) :- field(phone, V), str_digits(V, D), D >= 7.
+valid(country) :- field(country, V), V \\= ''.
+valid(zip) :- field(country, us), field(zip, V), str_digits(V, D), D =:= 5.
+valid(zip) :- field(country, uk), field(zip, V), str_len(V, L), L >= 5.
+valid(zip) :- field(country, ca), field(zip, V), str_len(V, L), L >= 6.
+valid(zip) :- field(country, de), field(zip, V), str_digits(V, D), D =:= 5.
+valid(zip) :- field(country, C), C \\= us, C \\= uk, C \\= ca, C \\= de, field(zip, V), str_len(V, L), L > 0.
+
+% Password strength
+pw_has_upper() :- field(password, V), str_has_upper(V).
+pw_has_lower() :- field(password, V), str_has_lower(V).
+pw_has_digit() :- field(password, V), str_has_digit(V).
+pw_has_special() :- field(password, V), str_has_special(V).
+pw_long() :- field(password, V), str_len(V, L), L >= 12.
+
+pw_feature_count(N) :-
+    findall(x, (pw_has_upper() ; pw_has_lower() ; pw_has_digit() ; pw_has_special() ; pw_long()), Bag),
+    list_length(Bag, N).
+
+% Hints (clause order = priority)
+hint(name, 'What should we call you?') :- field(name, '').
+hint(name, 'Just a bit more...') :- field(name, V), str_len(V, L), L < 2.
+hint(email, 'We''ll keep it safe, promise') :- field(email, '').
+hint(email, 'Needs an @ and a dot') :- field(email, V), not(str_contains(V, '@')).
+hint(email, 'Almost — needs a domain after @') :- field(email, V), str_contains(V, '@'), not(str_contains(V, '.')).
+hint(password, '8+ characters — make it a good one') :- field(password, '').
+hint(password, 'Keep going...') :- field(password, V), str_len(V, L), L < 8.
+hint(password, 'Try adding a number') :- valid(password), not(pw_has_digit()).
+hint(password, 'A special character would make this even stronger') :- valid(password), pw_has_digit(), not(pw_has_special()).
+hint(password, 'Excellent — that''s a strong password') :- valid(password), pw_has_digit(), pw_has_special().
+hint(confirm, 'Type your password again') :- field(confirm, '').
+hint(confirm, 'Doesn''t match yet...') :- field(password, P), field(confirm, C), P \\== C, str_len(C, L), L > 0.
+hint(phone, 'Any format works — we just need the digits') :- field(phone, '').
+hint(phone, 'Need a few more digits') :- field(phone, V), str_digits(V, D), D < 7.
+hint(zip, '5-digit ZIP code') :- field(country, us), not(valid(zip)).
+hint(zip, 'UK postcode, e.g. SW1A 1AA') :- field(country, uk), not(valid(zip)).
+hint(zip, 'Canadian postal code, e.g. K1A 0B1') :- field(country, ca), not(valid(zip)).
+hint(zip, '5-digit Postleitzahl') :- field(country, de), not(valid(zip)).
+hint(zip, 'Enter your postal code') :- not(valid(zip)).
+
+% Form readiness
+all_valid() :- valid(name), valid(email), valid(password), valid(confirm), valid(phone), valid(country), valid(zip).
+invalid_fields(F) :-
+    findall(X, (member(X, [name, email, password, confirm, phone, country, zip]), not(valid(X))), F).
+`;
+
 function buildFormKB() {
   const e = new PrologEngine();
+  loadString(e, FORM_RULES);
 
-  // ── Field value storage (dynamic) ─────────────────────────
-  // field(Name, Value) — updated on every keystroke
-  for (const name of ["name","email","password","confirm","phone","country","zip"])
-    e.addClause(c("field", [at(name), at("")]));
-
-  // ── Touched tracking ──────────────────────────────────────
-  // touched(Name) — asserted when user has interacted with field
-
-  // ── Validation rules ──────────────────────────────────────
-
-  // valid(name) :- field(name, V), str_len(V, L), L >= 2.
-  e.addClause(c("valid", [at("name")]), [
-    c("field", [at("name"), v("V")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">=", [v("L"), n(2)])
-  ]);
-
-  // valid(email) :- field(email, V), str_contains(V, "@"), str_contains(V, "."), str_len(V, L), L >= 5.
-  e.addClause(c("valid", [at("email")]), [
-    c("field", [at("email"), v("V")]),
-    c("str_contains", [v("V"), at("@")]),
-    c("str_contains", [v("V"), at(".")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">=", [v("L"), n(5)])
-  ]);
-
-  // Password: at least 8 chars
-  e.addClause(c("valid", [at("password")]), [
-    c("field", [at("password"), v("V")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">=", [v("L"), n(8)])
-  ]);
-
-  // Confirm matches password
-  e.addClause(c("valid", [at("confirm")]), [
-    c("field", [at("password"), v("P")]),
-    c("field", [at("confirm"), v("C")]),
-    c("==", [v("P"), v("C")]),
-    c("str_len", [v("C"), v("L")]),
-    c(">", [v("L"), n(0)])
-  ]);
-
-  // Phone: at least 7 digits
-  e.addClause(c("valid", [at("phone")]), [
-    c("field", [at("phone"), v("V")]),
-    c("str_digits", [v("V"), v("D")]),
-    c(">=", [v("D"), n(7)])
-  ]);
-
-  // Country: not empty
-  e.addClause(c("valid", [at("country")]), [
-    c("field", [at("country"), v("V")]),
-    c("\\=", [v("V"), at("")])
-  ]);
-
-  // Zip: depends on country
-  e.addClause(c("valid", [at("zip")]), [
-    c("field", [at("country"), at("us")]),
-    c("field", [at("zip"), v("V")]),
-    c("str_digits", [v("V"), v("D")]),
-    c("=:=", [v("D"), n(5)])
-  ]);
-  e.addClause(c("valid", [at("zip")]), [
-    c("field", [at("country"), at("uk")]),
-    c("field", [at("zip"), v("V")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">=", [v("L"), n(5)])
-  ]);
-  e.addClause(c("valid", [at("zip")]), [
-    c("field", [at("country"), at("ca")]),
-    c("field", [at("zip"), v("V")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">=", [v("L"), n(6)])
-  ]);
-  e.addClause(c("valid", [at("zip")]), [
-    c("field", [at("country"), at("de")]),
-    c("field", [at("zip"), v("V")]),
-    c("str_digits", [v("V"), v("D")]),
-    c("=:=", [v("D"), n(5)])
-  ]);
-  // Other countries: just non-empty
-  e.addClause(c("valid", [at("zip")]), [
-    c("field", [at("country"), v("C")]),
-    c("\\=", [v("C"), at("us")]),
-    c("\\=", [v("C"), at("uk")]),
-    c("\\=", [v("C"), at("ca")]),
-    c("\\=", [v("C"), at("de")]),
-    c("field", [at("zip"), v("V")]),
-    c("str_len", [v("V"), v("L")]),
-    c(">", [v("L"), n(0)])
-  ]);
-
-  // ── Password strength ─────────────────────────────────────
-  // pw_strength(Level) — 0-4
-
-  e.addClause(c("pw_has_upper", []), [c("field", [at("password"), v("V")]), c("str_has_upper", [v("V")])]);
-  e.addClause(c("pw_has_lower", []), [c("field", [at("password"), v("V")]), c("str_has_lower", [v("V")])]);
-  e.addClause(c("pw_has_digit", []), [c("field", [at("password"), v("V")]), c("str_has_digit", [v("V")])]);
-  e.addClause(c("pw_has_special", []), [c("field", [at("password"), v("V")]), c("str_has_special", [v("V")])]);
-  e.addClause(c("pw_long", []), [c("field", [at("password"), v("V")]), c("str_len", [v("V"), v("L")]), c(">=", [v("L"), n(12)])]);
-
-  // Count features
-  e.addClause(c("pw_feature_count", [v("N")]), [
-    c("findall", [at("x"),
-      c(";", [c("pw_has_upper",[]), c(";", [c("pw_has_lower",[]), c(";", [c("pw_has_digit",[]), c(";", [c("pw_has_special",[]), c("pw_long",[])])])])]),
-      v("Bag")]),
-    c("list_length", [v("Bag"), v("N")])
-  ]);
-
-  // ── Hints (clause order = priority) ───────────────────────
-
-  // Name hints
-  e.addClause(c("hint", [at("name"), at("What should we call you?")]),
-    [c("field", [at("name"), at("")])]);
-  e.addClause(c("hint", [at("name"), at("Just a bit more...")]),
-    [c("field", [at("name"), v("V")]), c("str_len", [v("V"), v("L")]), c("<", [v("L"), n(2)])]);
-
-  // Email hints
-  e.addClause(c("hint", [at("email"), at("We'll keep it safe, promise")]),
-    [c("field", [at("email"), at("")])]);
-  e.addClause(c("hint", [at("email"), at("Needs an @ and a dot")]),
-    [c("field", [at("email"), v("V")]), c("not", [c("str_contains", [v("V"), at("@")])])]);
-  e.addClause(c("hint", [at("email"), at("Almost — needs a domain after @")]),
-    [c("field", [at("email"), v("V")]), c("str_contains", [v("V"), at("@")]), c("not", [c("str_contains", [v("V"), at(".")])])]);
-
-  // Password hints
-  e.addClause(c("hint", [at("password"), at("8+ characters — make it a good one")]),
-    [c("field", [at("password"), at("")])]);
-  e.addClause(c("hint", [at("password"), at("Keep going...")]),
-    [c("field", [at("password"), v("V")]), c("str_len", [v("V"), v("L")]), c("<", [v("L"), n(8)])]);
-  e.addClause(c("hint", [at("password"), at("Try adding a number")]),
-    [c("valid", [at("password")]), c("not", [c("pw_has_digit", [])])]);
-  e.addClause(c("hint", [at("password"), at("A special character would make this even stronger")]),
-    [c("valid", [at("password")]), c("pw_has_digit", []), c("not", [c("pw_has_special", [])])]);
-  e.addClause(c("hint", [at("password"), at("Excellent — that's a strong password")]),
-    [c("valid", [at("password")]), c("pw_has_digit", []), c("pw_has_special", [])]);
-
-  // Confirm hints
-  e.addClause(c("hint", [at("confirm"), at("Type your password again")]),
-    [c("field", [at("confirm"), at("")])]);
-  e.addClause(c("hint", [at("confirm"), at("Doesn't match yet...")]),
-    [c("field", [at("password"), v("P")]), c("field", [at("confirm"), v("C")]),
-     c("\\==", [v("P"), v("C")]), c("str_len", [v("C"), v("L")]), c(">", [v("L"), n(0)])]);
-
-  // Phone hints
-  e.addClause(c("hint", [at("phone"), at("Any format works — we just need the digits")]),
-    [c("field", [at("phone"), at("")])]);
-  e.addClause(c("hint", [at("phone"), at("Need a few more digits")]),
-    [c("field", [at("phone"), v("V")]), c("str_digits", [v("V"), v("D")]), c("<", [v("D"), n(7)])]);
-
-  // Zip hints (country-dependent!)
-  e.addClause(c("hint", [at("zip"), at("5-digit ZIP code")]),
-    [c("field", [at("country"), at("us")]), c("not", [c("valid", [at("zip")])])]);
-  e.addClause(c("hint", [at("zip"), at("UK postcode, e.g. SW1A 1AA")]),
-    [c("field", [at("country"), at("uk")]), c("not", [c("valid", [at("zip")])])]);
-  e.addClause(c("hint", [at("zip"), at("Canadian postal code, e.g. K1A 0B1")]),
-    [c("field", [at("country"), at("ca")]), c("not", [c("valid", [at("zip")])])]);
-  e.addClause(c("hint", [at("zip"), at("5-digit Postleitzahl")]),
-    [c("field", [at("country"), at("de")]), c("not", [c("valid", [at("zip")])])]);
-  e.addClause(c("hint", [at("zip"), at("Enter your postal code")]),
-    [c("not", [c("valid", [at("zip")])])]);
-
-  // ── Form readiness ────────────────────────────────────────
-
-  e.addClause(c("all_valid", []), [
-    c("valid", [at("name")]),  c("valid", [at("email")]),
-    c("valid", [at("password")]), c("valid", [at("confirm")]),
-    c("valid", [at("phone")]), c("valid", [at("country")]),
-    c("valid", [at("zip")]),
-  ]);
-
-  e.addClause(c("invalid_fields", [v("F")]), [
-    c("findall", [v("X"),
-      c(";", [
-        c(",", [c("member", [v("X"), P.list([at("name"),at("email"),at("password"),at("confirm"),at("phone"),at("country"),at("zip")])]),
-                c("not", [c("valid", [v("X")])])]),
-        c("fail", [])
-      ]),
-      v("F")
-    ])
-  ]);
-
-  // ── Custom string builtins ────────────────────────────────
-
+  // Custom string builtins
   e.builtins["str_len/2"] = function(g,r,s,ctr,d,cb) {
     var t = e.deepWalk(g.args[0], s);
     if (t.type !== "atom") return;

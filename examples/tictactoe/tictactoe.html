@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>?- play(tic_tac_toe). — Solid + Prolog</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #06080c;
+    --surface: #0d1117;
+    --border: #1b1f27;
+    --border-bright: #2d333b;
+    --text: #c8ccd4;
+    --text-dim: #6e7681;
+    --text-faint: #3d444d;
+    --green: #56d364;
+    --green-glow: rgba(86,211,100,0.3);
+    --green-dim: rgba(86,211,100,0.08);
+    --red: #f85149;
+    --orange: #f78166;
+    --blue: #79c0ff;
+    --yellow: #d29922;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 20px var(--green-glow);
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  .game-area {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 28px;
+    max-width: 780px;
+    width: 100%;
+  }
+
+  .board-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .status {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    background: var(--border);
+    padding: 4px;
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(86,211,100,0.04), inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+
+  .cell {
+    width: 92px;
+    height: 92px;
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 36px;
+    font-weight: 800;
+    font-family: inherit;
+    color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.15s ease;
+  }
+
+  .cell:disabled { cursor: default; }
+  .cell:not(:disabled):hover {
+    background: var(--green-dim);
+    border-color: rgba(86,211,100,0.25);
+  }
+
+  .cell.x { color: var(--green); background: #161b22; }
+  .cell.o { color: var(--orange); background: #161b22; }
+  .cell.win-x { background: rgba(86,211,100,0.12); border-color: rgba(86,211,100,0.4); }
+  .cell.win-o { background: rgba(248,81,73,0.12); border-color: rgba(248,81,73,0.4); }
+
+  .cell-hint {
+    position: absolute;
+    font-size: 11px;
+    color: var(--text-faint);
+    bottom: 4px;
+    right: 8px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .btn {
+    padding: 8px 20px;
+    background: #21262d;
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: var(--border-bright); }
+  .btn.active {
+    background: var(--green-dim);
+    color: var(--green);
+    border-color: rgba(86,211,100,0.3);
+  }
+
+  .log-panel {
+    width: 280px;
+    min-width: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .log-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .log-body {
+    flex: 1;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-y: auto;
+    max-height: 340px;
+    min-height: 200px;
+  }
+
+  .log-entry { white-space: pre-wrap; word-break: break-all; }
+  .log-entry.query { color: var(--blue); }
+  .log-entry.success { color: var(--green); }
+  .log-entry.win { color: var(--red); }
+  .log-entry.draw { color: var(--yellow); }
+  .log-entry.info { color: var(--text-dim); }
+
+  .source-panel {
+    margin-top: 28px;
+    max-width: 640px;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .source-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .source-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .source-note {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .source-code {
+    padding: 14px 18px;
+    font-size: 12px;
+    line-height: 1.65;
+    overflow: auto;
+    max-height: 500px;
+    color: #adbac7;
+  }
+
+  .source-line-num {
+    color: var(--border-bright);
+    user-select: none;
+    margin-right: 12px;
+    display: inline-block;
+    width: 24px;
+    text-align: right;
+  }
+
+  .source-comment { color: #3d8c5f; }
+  .source-head { color: var(--blue); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .thinking-indicator {
+    display: inline-block;
+    animation: pulse 1s infinite;
+    margin-right: 8px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+// ── Imports ──
+import { PrologEngine, listToArray } from "../../src/prolog-engine.js";
+import { buildTicTacToeKB, boardToProlog, TICTACTOE_PROLOG_SOURCE } from "./tictactoe-kb.js";
+
+const a = PrologEngine.atom, v = PrologEngine.variable, c = PrologEngine.compound, n = PrologEngine.num;
+const PROLOG_SOURCE = TICTACTOE_PROLOG_SOURCE.trim();
+
+// ---- SolidJS ----
+import { createSignal, createMemo, createEffect, onMount, For, Show } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+function App() {
+  const [board, setBoard] = createSignal(Array(9).fill(null));
+  const [status, setStatus] = createSignal("your_turn");
+  const [winLine, setWinLine] = createSignal(null);
+  const [showSource, setShowSource] = createSignal(false);
+  const [log, setLog] = createSignal([]);
+  const aiSymbol = "o";
+  const playerSymbol = "x";
+  let engine = buildTicTacToeKB();
+  let logEnd;
+
+  const addLog = (msg) => setLog(prev => [...prev.slice(-30), msg]);
+
+  const gameOver = createMemo(() => ["won","lost","draw"].includes(status()));
+  const statusText = createMemo(() => ({
+    your_turn: `Your move (X)`,
+    ai_thinking: "Prolog is thinking...",
+    won: "You win!",
+    lost: "Prolog wins!",
+    draw: "It's a draw!",
+  }[status()]));
+
+  const statusColor = createMemo(() => ({
+    won: "var(--green)", lost: "var(--red)",
+    draw: "var(--yellow)", ai_thinking: "var(--blue)",
+  }[status()] || "var(--text)"));
+
+  createEffect(() => { log(); logEnd?.scrollIntoView({ behavior: "smooth" }); });
+
+  function checkWin(b) {
+    const pBoard = boardToProlog(b);
+    const winX = engine.queryFirst(c("win", [pBoard, a("x")]));
+    const winO = engine.queryFirst(c("win", [pBoard, a("o")]));
+    if (winX || winO) {
+      const winner = winX ? "x" : "o";
+      for (const ln of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (ln.every(i => b[i] === winner)) return { winner, line: ln };
+      return { winner, line: null };
+    }
+    if (engine.queryFirst(c("board_full", [pBoard]))) return { winner: "draw", line: null };
+    return null;
+  }
+
+  function aiMove(currentBoard) {
+    setStatus("ai_thinking");
+    addLog(`?- choose_move(Board, o, Pos).`);
+    setTimeout(() => {
+      const pBoard = boardToProlog(currentBoard);
+      const result = engine.queryFirst(c("choose_move", [pBoard, a(aiSymbol), v("Pos")]));
+      if (result && result.args[2].type === "num") {
+        const pos = result.args[2].value - 1;
+        addLog(`   Pos = ${pos+1}  ✓`);
+        const newBoard = [...currentBoard]; newBoard[pos] = aiSymbol;
+        setBoard(newBoard);
+        const outcome = checkWin(newBoard);
+        if (outcome) {
+          if (outcome.winner === "draw") { setStatus("draw"); addLog("% Game drawn."); }
+          else if (outcome.winner === aiSymbol) { setStatus("lost"); setWinLine(outcome.line); addLog(`% o wins!`); }
+          else { setStatus("won"); setWinLine(outcome.line); addLog(`% x wins!`); }
+        } else { setStatus("your_turn"); addLog(`% Your turn (x).`); }
+      } else { setStatus("draw"); addLog("   no move found"); }
+    }, 350);
+  }
+
+  function handleClick(i) {
+    if (status() !== "your_turn" || board()[i] !== null) return;
+    const newBoard = [...board()]; newBoard[i] = playerSymbol;
+    setBoard(newBoard);
+    addLog(`% Player moves to ${i+1}.`);
+    const outcome = checkWin(newBoard);
+    if (outcome) {
+      if (outcome.winner === "draw") { setStatus("draw"); addLog("% Game drawn."); }
+      else if (outcome.winner === playerSymbol) { setStatus("won"); setWinLine(outcome.line); addLog(`% x wins!`); }
+      else { setStatus("lost"); setWinLine(outcome.line); addLog(`% o wins!`); }
+    } else { aiMove(newBoard); }
+  }
+
+  function reset() {
+    engine = buildTicTacToeKB();
+    setBoard(Array(9).fill(null));
+    setStatus("your_turn");
+    setWinLine(null);
+    addLog("% ---- New Game ----");
+  }
+
+  // Build DOM with h()
+  return h("div", null,
+    h("h1", null, "?- play(tic_tac_toe)."),
+    h("p", { class: "subtitle" }, "Solid + Prolog — reactive signals meet unification"),
+    h("div", { class: "game-area" },
+      // Board column
+      h("div", { class: "board-col" },
+        h("div", { class: "status", style: () => `color: ${statusColor()}` },
+          () => status() === "ai_thinking" ? h("span", { class: "thinking-indicator" }, "▶") : null,
+          statusText
+        ),
+        h("div", { class: "grid" },
+          () => board().map((cell, i) => {
+            const isWin = () => winLine() && winLine().includes(i);
+            const cls = () => {
+              let cl = "cell";
+              if (cell) cl += " " + cell;
+              if (isWin()) cl += " win-" + cell;
+              return cl;
+            };
+            return h("button", {
+              class: cls,
+              disabled: () => cell !== null || gameOver() || status() === "ai_thinking",
+              onclick: () => handleClick(i)
+            },
+              () => cell === "x" ? "✕" : cell === "o" ? "○" : "",
+              () => !cell && !gameOver() && status() === "your_turn"
+                ? h("span", { class: "cell-hint" }, i + 1)
+                : null
+            );
+          })
+        ),
+        h("div", { class: "controls" },
+          h("button", { class: "btn", onclick: reset }, "New Game"),
+          h("button", {
+            class: () => "btn" + (showSource() ? " active" : ""),
+            onclick: () => setShowSource(!showSource())
+          }, () => (showSource() ? "Hide" : "Show") + " Prolog Source")
+        )
+      ),
+      // Log panel
+      h("div", { class: "log-panel" },
+        h("div", { class: "log-header" }, "Inference Log"),
+        h("div", { class: "log-body" },
+          () => log().length === 0
+            ? h("span", { style: "color: var(--text-faint)" }, "% Waiting for first move...")
+            : null,
+          () => log().map((entry, i) => {
+            const cls = entry.startsWith("?-") ? "query"
+              : entry.includes("✓") ? "success"
+              : entry.includes("wins") ? "win"
+              : entry.includes("drawn") ? "draw"
+              : "info";
+            return h("div", { class: "log-entry " + cls }, entry);
+          }),
+          h("div", { ref: (el) => logEnd = el })
+        )
+      )
+    ),
+    // Source panel
+    () => showSource() ? h("div", { class: "source-panel" },
+      h("div", { class: "source-header" },
+        h("span", { class: "source-title" }, "tictactoe.pl"),
+        h("span", { class: "source-note" }, "This logic runs in the interpreter above")
+      ),
+      h("pre", { class: "source-code" },
+        () => PROLOG_SOURCE.split("\n").map((line, i) => {
+          const isComment = line.trimStart().startsWith("%");
+          const isHead = /^[a-z]\w*\(/.test(line.trimStart());
+          return h("div", { class: isComment ? "source-comment" : isHead ? "source-head" : "" },
+            h("span", { class: "source-line-num" }, i + 1),
+            " " + line
+          );
+        })
+      )
+    ) : null
+  );
+}
+
+render(App, document.getElementById("app"));
+</script>
+</body>
+</html>
