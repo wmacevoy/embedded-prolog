@@ -297,6 +297,66 @@ describe("End-to-end sync simulation", () => {
   });
 });
 
+// ── Fact namespacing ────────────────────────────────────
+
+describe("Fact namespacing", () => {
+  it("no syncPredicates → all assertions work (backward compat)", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e);
+    const head = compound("todo", [atom("1"), atom("test"), atom("active"), atom("me")]);
+    eq(sync.assertFact(head, "client"), true);
+    eq(sync.retractFact(head, "server"), true);
+  });
+
+  it("client source allowed for client predicate", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "todo/4": "client" } });
+    const head = compound("todo", [atom("1"), atom("test"), atom("active"), atom("me")]);
+    eq(sync.assertFact(head, "client"), true);
+    eq(sync.retractFact(head, "client"), true);
+  });
+
+  it("client source blocked for server-only predicate", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "config/2": "server" } });
+    const head = compound("config", [atom("key"), atom("val")]);
+    eq(sync.assertFact(head, "client"), false);
+  });
+
+  it("server source allowed for server-only predicate", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "config/2": "server" } });
+    const head = compound("config", [atom("key"), atom("val")]);
+    eq(sync.assertFact(head, "server"), true);
+  });
+
+  it("unlisted predicate blocked", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "todo/4": "client" } });
+    const head = compound("secret", [atom("x")]);
+    eq(sync.assertFact(head, "client"), false);
+    eq(sync.assertFact(head, "server"), false);
+  });
+
+  it("'both' allows either source", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "shared/1": "both" } });
+    const h1 = compound("shared", [atom("a")]);
+    const h2 = compound("shared", [atom("b")]);
+    eq(sync.assertFact(h1, "client"), true);
+    eq(sync.assertFact(h2, "server"), true);
+  });
+
+  it("no source parameter → always allowed (backward compat for existing callers)", () => {
+    const e = new PrologEngine();
+    const sync = new SyncEngine(e, { syncPredicates: { "todo/4": "server" } });
+    const head = compound("todo", [atom("1"), atom("test"), atom("active"), atom("me")]);
+    // Without source, even a server-only predicate is allowed (backward compat)
+    eq(sync.assertFact(head), true);
+    eq(sync.retractFact(head), true);
+  });
+});
+
 // ── Summary ─────────────────────────────────────────────────
 
 console.log(`\n  ${_pass} passing, ${_fail} failing`);
