@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synced Todos — Prolog</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --cream: #faf6f0;
+  --paper: #f5efe6;
+  --paper-deep: #ede4d4;
+  --ink: #2c2418;
+  --ink-light: #5c4f3d;
+  --ink-faint: #a89a84;
+  --ink-ghost: #d4cab8;
+  --warm: #c4713b;
+  --warm-light: #e8a46c;
+  --warm-glow: rgba(196,113,59,0.12);
+  --green: #4a7a52;
+  --green-light: #6fa877;
+  --green-glow: rgba(74,122,82,0.1);
+  --red: #b44a3f;
+  --red-light: #d4756a;
+  --blue: #4a6a8a;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(44,36,24,0.06), 0 6px 16px rgba(44,36,24,0.04);
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px 80px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container { width: 100%; max-width: 540px; }
+
+.header { text-align: center; margin-bottom: 32px; }
+.header h1 {
+  font-family: 'Libre Baskerville', serif;
+  font-size: 26px; font-weight: 700;
+  letter-spacing: -0.01em; line-height: 1.3;
+}
+.header p { font-size: 14px; color: var(--ink-faint); margin-top: 6px; line-height: 1.5; }
+.header .badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 10px; padding: 4px 12px;
+  background: var(--warm-glow); border: 1px solid rgba(196,113,59,0.12);
+  border-radius: 20px; font-size: 11px; font-weight: 600;
+  color: var(--warm); letter-spacing: 0.04em; text-transform: uppercase;
+}
+
+.card {
+  background: white; border: 1px solid var(--paper-deep);
+  border-radius: 14px; padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+/* Name input */
+.name-row {
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 20px; padding-bottom: 16px;
+  border-bottom: 1px solid var(--paper-deep);
+}
+.name-row label { font-size: 13px; font-weight: 600; color: var(--ink-light); white-space: nowrap; }
+.name-row input {
+  flex: 1; padding: 8px 12px; font-family: inherit; font-size: 14px;
+  color: var(--ink); background: var(--cream);
+  border: 1.5px solid var(--ink-ghost); border-radius: var(--radius);
+  outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.name-row input:focus { border-color: var(--warm-light); box-shadow: 0 0 0 3px var(--warm-glow); }
+
+/* Add form */
+.add-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.add-row input {
+  flex: 1; padding: 10px 14px; font-family: inherit; font-size: 14px;
+  color: var(--ink); background: var(--cream);
+  border: 1.5px solid var(--ink-ghost); border-radius: var(--radius);
+  outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.add-row input:focus { border-color: var(--warm-light); box-shadow: 0 0 0 3px var(--warm-glow); background: white; }
+.add-row input::placeholder { color: var(--ink-ghost); }
+.add-btn {
+  padding: 10px 20px; font-family: inherit; font-size: 14px; font-weight: 700;
+  background: var(--warm); color: white; border: none; border-radius: var(--radius);
+  cursor: pointer; transition: background 0.2s, transform 0.1s;
+  box-shadow: 0 2px 6px rgba(196,113,59,0.2);
+}
+.add-btn:hover { background: #b5632f; transform: translateY(-1px); }
+.add-btn:active { transform: translateY(0); }
+.add-btn:disabled { background: var(--paper-deep); color: var(--ink-ghost); cursor: default; box-shadow: none; transform: none; }
+
+/* Section labels */
+.section-label {
+  display: flex; align-items: center; gap: 8px;
+  margin: 16px 0 8px; font-size: 11px; font-weight: 700;
+  color: var(--ink-faint); letter-spacing: 0.06em; text-transform: uppercase;
+}
+.section-label .count {
+  background: var(--paper); padding: 1px 7px; border-radius: 10px;
+  font-size: 11px; font-weight: 600;
+}
+
+/* Todo items */
+.todo-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: 4px;
+  border-radius: 8px; transition: background 0.15s;
+}
+.todo-item:hover { background: var(--cream); }
+.todo-text { flex: 1; font-size: 14px; line-height: 1.4; }
+.todo-owner {
+  font-size: 11px; color: var(--ink-faint); font-weight: 500;
+  padding: 2px 8px; background: var(--paper); border-radius: 10px;
+  white-space: nowrap;
+}
+.todo-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1.5px solid var(--ink-ghost); background: none;
+  cursor: pointer; font-size: 13px; color: var(--ink-faint);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.todo-btn.complete:hover { border-color: var(--green-light); color: var(--green); background: var(--green-glow); }
+.todo-btn.delete:hover { border-color: var(--red-light); color: var(--red); background: rgba(180,74,63,0.06); }
+.todo-item.done .todo-text { text-decoration: line-through; color: var(--ink-faint); }
+
+/* Empty state */
+.empty { padding: 16px; text-align: center; font-size: 13px; color: var(--ink-ghost); font-style: italic; }
+
+/* Status bar */
+.status-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--paper-deep);
+  font-size: 12px; color: var(--ink-faint);
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red-light); transition: background 0.3s;
+}
+.status-dot.connected { background: var(--green); }
+.status-text { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { PrologEngine } from "/src/prolog-engine.js";
+import { serialize, deserialize, SyncEngine } from "/src/sync.js";
+import { buildTodoKB } from "/todo-kb.js";
+import { createSignal, createMemo } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/+esm";
+import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
+import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
+
+const { atom, variable, compound } = PrologEngine;
+
+// ── Engine + sync ───────────────────────────────────────────
+
+const engine = buildTodoKB(PrologEngine);
+const [gen, setGen] = createSignal(0);
+const bump = () => setGen(g => g + 1);
+const sync = new SyncEngine(engine, { onSync: bump });
+
+// ── WebSocket ───────────────────────────────────────────────
+
+const [connected, setConnected] = createSignal(false);
+let ws = null;
+
+function connect() {
+  ws = new WebSocket("ws://" + location.host);
+  ws.onopen = () => setConnected(true);
+  ws.onclose = () => {
+    setConnected(false);
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.kind === "snapshot") {
+      sync.applySnapshot(msg.facts);
+    } else if (msg.kind === "assert") {
+      sync.assertFact(deserialize(msg.head));
+    } else if (msg.kind === "retract") {
+      sync.retractFact(deserialize(msg.head));
+    }
+  };
+}
+connect();
+
+function send(msg) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+}
+
+// ── App ─────────────────────────────────────────────────────
+
+function App() {
+  // Client name
+  const stored = localStorage.getItem("todo-name") || ("User-" + Math.random().toString(36).slice(2, 6));
+  const [name, setName] = createSignal(stored);
+
+  function updateName(n) {
+    setName(n);
+    localStorage.setItem("todo-name", n);
+  }
+
+  // New todo input
+  const [input, setInput] = createSignal("");
+
+  // Reactive queries — re-run when gen() changes
+  const activeTodos = createMemo(() => {
+    gen();
+    return engine.query(compound("todo", [variable("Id"), variable("Text"), atom("active"), variable("Owner")]));
+  });
+
+  const doneTodos = createMemo(() => {
+    gen();
+    return engine.query(compound("todo", [variable("Id"), variable("Text"), atom("done"), variable("Owner")]));
+  });
+
+  // Actions — send to server, don't apply locally
+  function addTodo() {
+    const text = input().trim();
+    if (!text) return;
+    const id = String(Date.now());
+    send({ kind: "assert", head: serialize(compound("todo", [atom(id), atom(text), atom("active"), atom(name())])) });
+    setInput("");
+  }
+
+  function completeTodo(todo) {
+    send({ kind: "retract", head: serialize(todo) });
+    send({ kind: "assert", head: serialize(compound("todo", [todo.args[0], todo.args[1], atom("done"), todo.args[3]])) });
+  }
+
+  function deleteTodo(todo) {
+    send({ kind: "retract", head: serialize(todo) });
+  }
+
+  function onKeyDown(e) {
+    if (e.key === "Enter") addTodo();
+  }
+
+  // ── Render ────────────────────────────────────────────────
+
+  return h("div", { class: "container" },
+    h("div", { class: "header" },
+      h("h1", null, "Synchronized Todos"),
+      h("p", null, "Prolog facts synced over WebSocket"),
+      h("span", { class: "badge" }, "Rules = code. Facts = data."),
+    ),
+
+    h("div", { class: "card" },
+      // Name
+      h("div", { class: "name-row" },
+        h("label", null, "Your name"),
+        h("input", {
+          value: name,
+          oninput: (e) => updateName(e.target.value),
+        }),
+      ),
+
+      // Add todo
+      h("div", { class: "add-row" },
+        h("input", {
+          placeholder: "What needs doing?",
+          value: input,
+          oninput: (e) => setInput(e.target.value),
+          onkeydown: onKeyDown,
+        }),
+        h("button", {
+          class: "add-btn",
+          disabled: () => !connected() || !input().trim(),
+          onclick: addTodo,
+        }, "Add"),
+      ),
+
+      // Active todos
+      h("div", { class: "section-label" },
+        "Active",
+        h("span", { class: "count" }, () => activeTodos().length),
+      ),
+      () => activeTodos().length === 0
+        ? h("div", { class: "empty" }, "Nothing to do!")
+        : activeTodos().map(todo =>
+            h("div", { class: "todo-item" },
+              h("span", { class: "todo-text" }, todo.args[1].name),
+              h("span", { class: "todo-owner" }, todo.args[3].name),
+              h("button", {
+                class: "todo-btn complete",
+                onclick: () => completeTodo(todo),
+                title: "Complete",
+              }, "\u2713"),
+            )
+          ),
+
+      // Done todos
+      () => doneTodos().length > 0
+        ? [
+            h("div", { class: "section-label" },
+              "Done",
+              h("span", { class: "count" }, () => doneTodos().length),
+            ),
+            () => doneTodos().map(todo =>
+              h("div", { class: "todo-item done" },
+                h("span", { class: "todo-text" }, todo.args[1].name),
+                h("span", { class: "todo-owner" }, todo.args[3].name),
+                h("button", {
+                  class: "todo-btn delete",
+                  onclick: () => deleteTodo(todo),
+                  title: "Delete",
+                }, "\u2715"),
+              )
+            ),
+          ]
+        : null,
+
+      // Status bar
+      h("div", { class: "status-bar" },
+        h("div", { class: () => "status-dot" + (connected() ? " connected" : "") }),
+        h("span", { class: "status-text" }, () =>
+          connected()
+            ? activeTodos().length + " active \u00b7 " + doneTodos().length + " done"
+            : "Reconnecting..."
+        ),
+      ),
+    ),
+  );
+}
+
+render(App, document.getElementById("app"));
+</script>
+</body>
+</html>

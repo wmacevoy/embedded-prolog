@@ -61,6 +61,8 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
       "$JS examples/vending/test.js"
     run "JS margin trading ($JS, 28 tests)" \
       "$JS examples/margin/test.js"
+    run "JS sync-todo ($JS, 26 tests)" \
+      "$JS examples/sync-todo/test.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi
