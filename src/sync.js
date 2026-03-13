@@ -79,9 +79,37 @@ function SyncEngine(engine, opts) {
   this.engine = engine;
   this._facts = [];
   this.onSync = opts.onSync || function() {};
+  // opts.syncPredicates is an object mapping "functor/arity" to "client" | "server" | "both"
+  // Example: { "todo/4": "client", "config/2": "server" }
+  // If null/undefined, all facts are allowed (backward compatible)
+  this._syncPredicates = opts.syncPredicates || null;
 }
 
-SyncEngine.prototype.assertFact = function(head) {
+SyncEngine.prototype._predicateKey = function(head) {
+  if (head.type === "compound") {
+    return head.functor + "/" + head.args.length;
+  }
+  if (head.type === "atom") {
+    return head.name + "/0";
+  }
+  return null;
+};
+
+SyncEngine.prototype.isAllowed = function(head, source) {
+  if (this._syncPredicates === null) return true;
+  var key = this._predicateKey(head);
+  if (key === null) return false;
+  if (!(key in this._syncPredicates)) return false;
+  var val = this._syncPredicates[key];
+  if (val === "both") return true;
+  if (val === source) return true;
+  return false;
+};
+
+SyncEngine.prototype.assertFact = function(head, source) {
+  if (typeof source !== "undefined" && !this.isAllowed(head, source)) {
+    return false;
+  }
   for (var i = 0; i < this._facts.length; i++) {
     if (termEq(this._facts[i], head)) return false;
   }
@@ -91,7 +119,10 @@ SyncEngine.prototype.assertFact = function(head) {
   return true;
 };
 
-SyncEngine.prototype.retractFact = function(head) {
+SyncEngine.prototype.retractFact = function(head, source) {
+  if (typeof source !== "undefined" && !this.isAllowed(head, source)) {
+    return false;
+  }
   for (var i = 0; i < this._facts.length; i++) {
     if (termEq(this._facts[i], head)) {
       this._facts.splice(i, 1);
