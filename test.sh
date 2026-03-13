@@ -71,6 +71,10 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
       "$JS src/test-loader.js"
     run "JS sync-client ($JS, 16 tests)" \
       "$JS src/test-sync-client.js"
+    run "JS NNG mesh ($JS, 33 tests)" \
+      "$JS examples/nng-mesh/test.js"
+    run "JS greenhouse mesh ($JS, 42 tests)" \
+      "$JS examples/greenhouse/test.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi
