@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Greenhouse Monitor</title>
+<style>
+  /* ── Reset & base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  header {
+    background: #0f3460;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid #533483;
+  }
+
+  header h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #e0e0e0;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .status-normal  { background: #16c784; color: #0a0a0a; }
+  .status-critical { background: #ea3943; color: #ffffff; }
+  .status-unknown  { background: #555; color: #ccc; }
+
+  /* ── Main grid ────────────────────────────────────────────── */
+  main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 20px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 768px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  /* ── Card panels ──────────────────────────────────────────── */
+  .card {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 16px 20px;
+    border: 1px solid #1a1a4e;
+  }
+
+  .card h2 {
+    font-size: 0.95rem;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #1a1a4e;
+  }
+
+  /* ── Alerts card — spans full width when present ──────────── */
+  .card-alerts {
+    grid-column: 1 / -1;
+  }
+
+  .alert-item {
+    background: #3b1020;
+    border: 1px solid #ea3943;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .alert-item:last-child { margin-bottom: 0; }
+
+  .alert-node { color: #f87171; font-weight: 600; }
+  .alert-type { color: #fbbf24; }
+  .alert-level {
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .alert-level-high { background: #ea3943; color: #fff; }
+  .alert-level-low  { background: #3b82f6; color: #fff; }
+
+  .no-alerts {
+    color: #6b7280;
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  /* ── Node list ────────────────────────────────────────────── */
+  .node-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .node-list li {
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    background: #1a1a4e;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .node-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #16c784;
+    display: inline-block;
+  }
+
+  .no-nodes {
+    color: #6b7280;
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid #1a1a4e;
+  }
+
+  th {
+    color: #9ca3af;
+    font-weight: 500;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  td { color: #d1d5db; }
+
+  .no-data {
+    color: #6b7280;
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  /* ── Threshold form ───────────────────────────────────────── */
+  .threshold-group {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: #1a1a4e;
+    border-radius: 6px;
+  }
+
+  .threshold-group:last-child { margin-bottom: 0; }
+
+  .threshold-group label {
+    display: block;
+    font-size: 0.8rem;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+
+  .threshold-inputs {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .threshold-inputs input {
+    width: 80px;
+    padding: 4px 8px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #0f0f23;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 0.85rem;
+  }
+
+  .threshold-inputs span {
+    color: #6b7280;
+    font-size: 0.8rem;
+  }
+
+  .threshold-inputs button {
+    padding: 4px 12px;
+    background: #533483;
+    color: #e0e0e0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .threshold-inputs button:hover { background: #6d44a0; }
+
+  /* ── Footer ───────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 12px;
+    color: #4b5563;
+    font-size: 0.75rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Greenhouse Monitor</h1>
+  <span id="status-badge" class="status-badge status-unknown">...</span>
+</header>
+
+<main>
+  <!-- Alerts panel — full width -->
+  <div class="card card-alerts">
+    <h2>Alerts</h2>
+    <div id="alerts-content"><p class="no-alerts">Loading...</p></div>
+  </div>
+
+  <!-- Online nodes -->
+  <div class="card">
+    <h2>Online Nodes</h2>
+    <div id="nodes-content"><p class="no-nodes">Loading...</p></div>
+  </div>
+
+  <!-- VPD Estimates -->
+  <div class="card">
+    <h2>VPD Estimates</h2>
+    <div id="estimates-content"><p class="no-data">Loading...</p></div>
+  </div>
+
+  <!-- Readings -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Sensor Readings</h2>
+    <div id="readings-content"><p class="no-data">Loading...</p></div>
+  </div>
+
+  <!-- Thresholds -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Thresholds</h2>
+    <div id="thresholds-content"><p class="no-data">Loading...</p></div>
+  </div>
+</main>
+
+<footer>embedded-prolog greenhouse mesh dashboard</footer>
+
+<script>
+// ── State rendering ─────────────────────────────────────────
+
+function renderState(state) {
+  // Status badge
+  var badge = document.getElementById("status-badge");
+  badge.textContent = state.status;
+  badge.className = "status-badge status-" + state.status;
+
+  // Online nodes
+  var nodesEl = document.getElementById("nodes-content");
+  if (state.onlineNodes.length === 0) {
+    nodesEl.innerHTML = '<p class="no-nodes">No nodes online</p>';
+  } else {
+    var html = '<ul class="node-list">';
+    for (var i = 0; i < state.onlineNodes.length; i++) {
+      html += '<li><span class="node-dot"></span>' + escapeHtml(state.onlineNodes[i]) + '</li>';
+    }
+    html += '</ul>';
+    nodesEl.innerHTML = html;
+  }
+
+  // Readings table
+  var readingsEl = document.getElementById("readings-content");
+  if (state.readings.length === 0) {
+    readingsEl.innerHTML = '<p class="no-data">No readings received</p>';
+  } else {
+    var html = '<table><thead><tr><th>Node</th><th>Type</th><th>Value</th><th>Timestamp</th></tr></thead><tbody>';
+    for (var i = 0; i < state.readings.length; i++) {
+      var r = state.readings[i];
+      html += '<tr><td>' + escapeHtml(r.node) + '</td><td>' + escapeHtml(r.type) +
+              '</td><td>' + r.value + '</td><td>' + r.ts + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    readingsEl.innerHTML = html;
+  }
+
+  // Alerts
+  var alertsEl = document.getElementById("alerts-content");
+  if (state.alerts.length === 0) {
+    alertsEl.innerHTML = '<p class="no-alerts">No active alerts</p>';
+  } else {
+    var html = '';
+    for (var i = 0; i < state.alerts.length; i++) {
+      var a = state.alerts[i];
+      var levelClass = a.level === "high" ? "alert-level-high" : "alert-level-low";
+      html += '<div class="alert-item">' +
+              '<span><span class="alert-node">' + escapeHtml(a.node) + '</span> ' +
+              '<span class="alert-type">' + escapeHtml(a.type) + '</span></span>' +
+              '<span class="alert-level ' + levelClass + '">' + escapeHtml(a.level) + '</span>' +
+              '</div>';
+    }
+    alertsEl.innerHTML = html;
+  }
+
+  // Estimates table
+  var estimatesEl = document.getElementById("estimates-content");
+  if (state.estimates.length === 0) {
+    estimatesEl.innerHTML = '<p class="no-data">No estimates computed</p>';
+  } else {
+    var html = '<table><thead><tr><th>Node</th><th>Value (centikPa)</th><th>Confidence</th><th>Timestamp</th></tr></thead><tbody>';
+    for (var i = 0; i < state.estimates.length; i++) {
+      var e = state.estimates[i];
+      html += '<tr><td>' + escapeHtml(e.node) + '</td><td>' + e.value +
+              '</td><td>' + e.confidence + '</td><td>' + e.ts + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    estimatesEl.innerHTML = html;
+  }
+
+  // Thresholds form
+  var thresholdsEl = document.getElementById("thresholds-content");
+  var types = ["temperature", "humidity", "vpd"];
+  var units = { temperature: "C", humidity: "%", vpd: "centikPa" };
+  var html = '';
+  for (var i = 0; i < types.length; i++) {
+    var t = types[i];
+    var th = state.thresholds[t] || { min: 0, max: 0 };
+    html += '<div class="threshold-group">' +
+            '<label>' + escapeHtml(t) + ' (' + units[t] + ')</label>' +
+            '<div class="threshold-inputs">' +
+            '<span>Min</span>' +
+            '<input type="number" id="th-' + t + '-min" value="' + th.min + '">' +
+            '<span>Max</span>' +
+            '<input type="number" id="th-' + t + '-max" value="' + th.max + '">' +
+            '<button onclick="updateThreshold(\'' + t + '\')">Update</button>' +
+            '</div></div>';
+  }
+  thresholdsEl.innerHTML = html;
+}
+
+function escapeHtml(str) {
+  var div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Threshold update ────────────────────────────────────────
+
+function updateThreshold(type) {
+  var minInput = document.getElementById("th-" + type + "-min");
+  var maxInput = document.getElementById("th-" + type + "-max");
+  if (!minInput || !maxInput) return;
+
+  var body = {
+    type: type,
+    min: parseFloat(minInput.value),
+    max: parseFloat(maxInput.value)
+  };
+
+  fetch("/api/threshold", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(state) { renderState(state); })
+  .catch(function(err) { console.error("Threshold update failed:", err); });
+}
+
+// ── Initial load ────────────────────────────────────────────
+
+fetch("/api/state")
+  .then(function(res) { return res.json(); })
+  .then(function(state) { renderState(state); })
+  .catch(function(err) { console.error("Initial load failed:", err); });
+
+// ── SSE real-time updates ───────────────────────────────────
+
+var evtSource = new EventSource("/api/events");
+
+evtSource.onmessage = function(event) {
+  try {
+    var state = JSON.parse(event.data);
+    renderState(state);
+  } catch (e) {
+    console.error("Failed to parse SSE data:", e);
+  }
+};
+
+evtSource.onerror = function() {
+  console.warn("SSE connection lost, will auto-reconnect...");
+};
+</script>
+
+</body>
+</html>
