@@ -20,6 +20,8 @@ function PrologEngine() {
   this.builtins = {};
   this._output = [];
   this._sends = [];
+  this.onAssert = [];    // callbacks: fn(head) after a fact is added
+  this.onRetract = [];   // callbacks: fn(head) after a fact is removed
   this._registerBuiltins();
 }
 
@@ -86,13 +88,19 @@ PrologEngine.prototype.unify = function(a, b, subst) {
 
 PrologEngine.prototype.addClause = function(head, body) {
   this.clauses.push({ head: head, body: body || [] });
+  if (!body || body.length === 0) {
+    for (var i = 0; i < this.onAssert.length; i++) this.onAssert[i](head);
+  }
 };
 
 PrologEngine.prototype.retractFirst = function(head) {
   for (var i = 0; i < this.clauses.length; i++) {
     var fresh = this._freshVars(this.clauses[i], { n: 9000 });
     if (this.unify(head, fresh.head, new Map()) !== null) {
-      this.clauses.splice(i, 1);
+      var removed = this.clauses.splice(i, 1)[0];
+      if (removed.body.length === 0) {
+        for (var j = 0; j < this.onRetract.length; j++) this.onRetract[j](removed.head);
+      }
       return true;
     }
   }
@@ -345,7 +353,9 @@ PrologEngine.prototype._registerBuiltins = function() {
   };
 
   this.builtins["assert/1"] = function(goal, rest, subst, counter, depth, onSolution) {
-    self.clauses.push({ head: self.deepWalk(goal.args[0], subst), body: [] });
+    var term = self.deepWalk(goal.args[0], subst);
+    self.clauses.push({ head: term, body: [] });
+    for (var i = 0; i < self.onAssert.length; i++) self.onAssert[i](term);
     self.solve(rest, subst, counter, depth + 1, onSolution);
   };
   this.builtins["assertz/1"] = this.builtins["assert/1"];
