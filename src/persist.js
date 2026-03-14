@@ -1,24 +1,16 @@
 // ============================================================
 // persist.js — One-function database persistence for Y@ Prolog
 //
-// Portable: same constraints as prolog-engine.js (ES5, no deps).
+// Uses engine.onAssert / engine.onRetract callbacks — no
+// monkey-patching.  Ephemeral scopes become SQL transactions.
 //
 // Usage:
-//   persist(engine, sqliteAdapter(db));        // explicit adapter
-//   persist(engine, db);                       // auto-detect better-sqlite3
+//   persist(engine, sqliteAdapter(db));
+//   persist(engine, db);  // auto-detect better-sqlite3
 //   persist(engine, adapter, null, {stringify: qjson_stringify, parse: qjson_parse});
 //
 // Adapter interface (6 methods):
-//   setup()       — create table if needed
-//   insert(key)   — upsert fact (ignore duplicate)
-//   remove(key)   — delete fact by key
-//   all()         — return all fact keys as list of strings
-//   commit()      — commit transaction
-//   close()       — release connection
-//
-// If using ephemeral/react, call persist() AFTER createReactiveEngine().
-// Ephemeral scopes become SQL transactions — all mutations inside one
-// signal handler commit atomically.
+//   setup, insert(key,functor,arity), remove(key), all(predicates), commit, close
 // ============================================================
 
 // ── Term serialization (inline, matches sync.js format) ─────
@@ -49,25 +41,38 @@ function _deser(o) {
 
 function _autoAdapter(db) {
   if (typeof db.insert === "function" && typeof db.setup === "function") {
-    return db;  // already a semantic adapter
+    return db;
   }
   if (typeof db.prepare === "function" && typeof db.exec === "function") {
-    // better-sqlite3 or bun:sqlite — wrap to semantic interface
     var cache = {};
     function stmt(sql) {
       if (!cache[sql]) cache[sql] = db.prepare(sql);
       return cache[sql];
     }
     return {
-      setup:  function() { db.exec("CREATE TABLE IF NOT EXISTS facts (term TEXT PRIMARY KEY)"); },
-      insert: function(key) { stmt("INSERT OR IGNORE INTO facts VALUES (?)").run(key); },
+      setup:  function() {
+        db.exec("CREATE TABLE IF NOT EXISTS facts (term TEXT PRIMARY KEY, functor TEXT, arity INTEGER)");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_facts_pred ON facts(functor, arity)");
+      },
+      insert: function(key, functor, arity) { stmt("INSERT OR IGNORE INTO facts VALUES (?, ?, ?)").run(key, functor, arity); },
       remove: function(key) { stmt("DELETE FROM facts WHERE term = ?").run(key); },
-      all:    function() { return stmt("SELECT term FROM facts").all().map(function(r) { return r.term; }); },
+      all:    function(predicates) {
+        if (predicates) {
+          var rows = [], keys = Object.keys(predicates);
+          for (var i = 0; i < keys.length; i++) {
+            var parts = keys[i].split("/");
+            var matched = stmt("SELECT term FROM facts WHERE functor = ? AND arity = ?").all(parts[0], parseInt(parts[1], 10));
+            for (var j = 0; j < matched.length; j++) rows.push(matched[j].term);
+          }
+          return rows;
+        }
+        return stmt("SELECT term FROM facts").all().map(function(r) { return r.term; });
+      },
       commit: function() {},
       close:  function() { db.close(); }
     };
   }
-  return db;  // assume it's already an adapter
+  return db;
 }
 
 // ── Main function ───────────────────────────────────────────
@@ -75,9 +80,6 @@ function _autoAdapter(db) {
 function persist(engine, db, predicates, codec) {
   var adapter = _autoAdapter(db);
 
-  // codec: null = JSON; {stringify, parse} = custom (e.g. QJSON)
-  // Parse optimization: try native JSON.parse first, fall back to codec.parse.
-  // Native JSON.parse is C — almost zero cost for the 99.999% that is plain JSON.
   var _dumps = (codec && codec.stringify) || JSON.stringify;
   var _codec_parse = codec && codec.parse;
   var _loads = _codec_parse
@@ -85,6 +87,12 @@ function persist(engine, db, predicates, codec) {
     : JSON.parse;
 
   function _key(term) { return _dumps(_ser(term)); }
+
+  function _pred(term) {
+    if (term.type === "compound") return [term.functor, term.args.length];
+    if (term.type === "atom") return [term.name, 0];
+    return [null, null];
+  }
 
   var preds = predicates || null;
   var txnDepth = 0;
@@ -102,55 +110,31 @@ function persist(engine, db, predicates, codec) {
     if (txnDepth === 0 && adapter.commit) adapter.commit();
   }
 
-  // ── Create table + restore ──────────────────────────────
+  // ── Restore ───────────────────────────────────────────
   adapter.setup();
-
-  var keys = adapter.all();
+  var keys = adapter.all(preds);
   for (var i = 0; i < keys.length; i++) {
     engine.addClause(_deser(_loads(keys[i])));
   }
 
-  // ── Hook assert/1 ──────────────────────────────────────
-  var origAssert = engine.builtins["assert/1"];
-
-  engine.builtins["assert/1"] = function(goal, rest, subst, counter, depth, onSolution) {
-    var term = engine.deepWalk(goal.args[0], subst);
-    if (_ok(term)) {
-      adapter.insert(_key(term));
+  // ── Listen for assert → INSERT ────────────────────────
+  engine.onAssert.push(function(head) {
+    if (_ok(head)) {
+      var p = _pred(head);
+      adapter.insert(_key(head), p[0], p[1]);
       _commit();
     }
-    origAssert(goal, rest, subst, counter, depth, onSolution);
-  };
-  engine.builtins["assertz/1"] = engine.builtins["assert/1"];
+  });
 
-  // ── Hook addClause (covers programmatic additions) ──────
-  var _origAddClause = engine.addClause;
-  engine.addClause = function(head, body) {
-    _origAddClause.call(engine, head, body);
-    if ((!body || body.length === 0) && _ok(head)) {
-      adapter.insert(_key(head));
+  // ── Listen for retract → DELETE ───────────────────────
+  engine.onRetract.push(function(head) {
+    if (_ok(head)) {
+      adapter.remove(_key(head));
       _commit();
     }
-  };
+  });
 
-  // ── Hook retractFirst (covers retract/1 + retractall/1) ─
-  engine.retractFirst = function(head) {
-    for (var i = 0; i < engine.clauses.length; i++) {
-      var ch = engine.clauses[i].head;
-      var cb = engine.clauses[i].body;
-      if (engine.unify(head, ch, new Map()) !== null) {
-        engine.clauses.splice(i, 1);
-        if (cb.length === 0 && _ok(ch)) {
-          adapter.remove(_key(ch));
-          _commit();
-        }
-        return true;
-      }
-    }
-    return false;
-  };
-
-  // ── Hook ephemeral/1 — ephemeral scope = SQL transaction ─
+  // ── Hook ephemeral/1 — transaction batching ───────────
   if (engine.builtins["ephemeral/1"]) {
     var origEphemeral = engine.builtins["ephemeral/1"];
     engine.builtins["ephemeral/1"] = function(goal, rest, subst, counter, depth, onSolution) {

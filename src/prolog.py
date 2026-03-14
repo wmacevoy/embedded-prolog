@@ -105,18 +105,26 @@ class Engine:
         self._var_counter = 0
         self._output = []
         self._sends = []
+        self.on_assert = []    # callbacks: fn(head) after a fact is added
+        self.on_retract = []   # callbacks: fn(head) after a fact is removed
         self._register_builtins()
 
     # ── Clause management ────────────────────────────────────
 
     def add_clause(self, head, body=None):
         self.clauses.append((head, body or []))
+        if not body:
+            for cb in self.on_assert:
+                cb(head)
 
     def retract_first(self, head):
         for i in range(len(self.clauses)):
             s = unify(head, self._fresh(self.clauses[i][0]), {})
             if s is not None:
-                self.clauses.pop(i)
+                removed = self.clauses.pop(i)
+                if not removed[1]:
+                    for cb in self.on_retract:
+                        cb(removed[0])
                 return True
         return False
 
@@ -379,6 +387,8 @@ class Engine:
         def _assert(goal, rest, subst, depth, on_sol):
             term = deep_walk(goal[2][0], subst)
             eng.clauses.append((term, []))
+            for cb in eng.on_assert:
+                cb(term)
             eng._solve(rest, subst, depth + 1, on_sol)
         self.builtins["assert/1"] = _assert
         self.builtins["assertz/1"] = _assert
