@@ -15,18 +15,39 @@ def pg_adapter(conn):
 
     conn — DBAPI 2.0 connection (psycopg2, psycopg3, etc.)
     """
+    def _setup():
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS facts "
+            "(term TEXT PRIMARY KEY, functor TEXT, arity INTEGER)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_facts_pred ON facts(functor, arity)"
+        )
+        conn.commit()
+
+    def _all(predicates=None):
+        if predicates:
+            rows = []
+            for pred in predicates:
+                parts = pred.split("/")
+                cur = conn.execute(
+                    "SELECT term FROM facts WHERE functor = %s AND arity = %s",
+                    (parts[0], int(parts[1]))
+                )
+                rows.extend(cur.fetchall())
+            return [r[0] for r in rows]
+        return [r[0] for r in conn.execute("SELECT term FROM facts")]
+
     return {
-        "setup": lambda: (
-            conn.execute("CREATE TABLE IF NOT EXISTS facts (term TEXT PRIMARY KEY)"),
-            conn.commit()
-        ),
-        "insert": lambda key: conn.execute(
-            "INSERT INTO facts VALUES (%s) ON CONFLICT DO NOTHING", (key,)
+        "setup":  _setup,
+        "insert": lambda key, functor=None, arity=None: conn.execute(
+            "INSERT INTO facts VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (key, functor, arity)
         ),
         "remove": lambda key: conn.execute(
             "DELETE FROM facts WHERE term = %s", (key,)
         ),
-        "all": lambda: [row[0] for row in conn.execute("SELECT term FROM facts")],
+        "all":    _all,
         "commit": lambda: conn.commit(),
-        "close": lambda: conn.close(),
+        "close":  lambda: conn.close(),
     }

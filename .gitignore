@@ -1,3 +1,11 @@
 __pycache__/
 *.pyc
 node_modules/
+native/test_core
+native/test_qjson
+native/test_wyatt
+native/qjson_demo
+examples/native-demo/demo
+examples/native-demo/qjson_demo
+examples/native-demo/*.db
+examples/sync-todo/todos.db

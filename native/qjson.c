@@ -45,7 +45,6 @@ typedef struct {
 } pstate;
 
 static char peek(pstate *p) { return p->pos < p->len ? p->s[p->pos] : 0; }
-static char next(pstate *p) { return p->pos < p->len ? p->s[p->pos++] : 0; }
 
 static void skip_ws(pstate *p) {
     while (p->pos < p->len) {

@@ -23,9 +23,7 @@ function MockAdapter() {
 MockAdapter.prototype.setup = function() {};
 MockAdapter.prototype.insert = function(key) { this._rows[key] = true; };
 MockAdapter.prototype.remove = function(key) { delete this._rows[key]; };
-MockAdapter.prototype.all = function() {
-  return Object.keys(this._rows);
-};
+MockAdapter.prototype.all = function() { return Object.keys(this._rows); };
 MockAdapter.prototype.commit = function() {};
 MockAdapter.prototype.close = function() {};
 

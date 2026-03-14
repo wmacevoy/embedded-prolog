@@ -9,7 +9,7 @@ Y@ (Wyatt Ephemeral Reactive Prolog) — a Prolog inference engine with reactive
 ## Commands
 
 ```bash
-# Run all 410 tests (C + Python + JS) via Docker (no local runtimes needed)
+# Run all tests (19 suites: C + Python + JS) via Docker (no local runtimes needed)
 docker compose build test && docker compose run --rm test
 
 # Run specific runtime tests
@@ -57,7 +57,18 @@ Prolog engine (~300 lines) — CPS-based inference with unification, backtrackin
 | `qjson.js` / `qjson.py` | QJSON: JSON + `N`/`M`/`L` bignums + comments | nothing |
 | `fossilize.js` / `fossilize.py` | Freeze clause DB — injection proof | engine |
 
-The C implementation (`native/prolog_core.c`) uses 32-bit tagged terms and trail-based backtracking for <1ms queries on embedded targets.
+### Native C (`native/`)
+
+| File | Role |
+|------|------|
+| `wyatt.h` / `wyatt.c` | Embeddable C API: QuickJS + SQLite. Text in, text out |
+| `qjson.h` / `qjson.c` | Native QJSON: arena-allocated, 3.5M msg/sec, zero malloc |
+| `prolog_core.h` / `prolog_core.c` | 32-bit tagged terms, unification, trail-based backtracking |
+| `wyatt_js_embed.h` | Auto-generated: all JS modules as C string literals (70KB) |
+
+`wyatt.c` embeds the full JS engine (parser, reactive, persist, qjson, fossilize) via QuickJS.  The parser IS native — QuickJS compiles JS to bytecode.  `qjson.c` is standalone C (no QuickJS needed).
+
+Generate the embed header: `python3 scripts/gen_native_embed.py`
 
 ### Key patterns
 
