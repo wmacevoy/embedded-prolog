@@ -13,6 +13,7 @@
 
 import { PrologEngine } from "../../src/prolog-engine.js";
 import { serialize, deserialize, SyncEngine } from "../../src/sync.js";
+import { persist } from "../../src/persist.js";
 import { buildTodoKB } from "./todo-kb.js";
 import { fileURLToPath } from "url";
 import { dirname, join, extname } from "path";
@@ -43,6 +44,23 @@ const MIME = { ".html": "text/html", ".js": "application/javascript" };
 const engine = buildTodoKB(PrologEngine);
 const { atom, compound } = PrologEngine;
 
+// ── Attach SQLite persistence (optional — works without it) ─
+
+let _db = null;
+try {
+  if (IS_BUN) {
+    const { Database } = await import("bun:sqlite");
+    _db = new Database(join(__dir, "todos.db"));
+  }
+} catch(e) {}
+
+if (_db) {
+  persist(engine, _db, { "todo/4": true });
+  console.log("Persistence: SQLite (todos.db)");
+} else {
+  console.log("Persistence: none (in-memory only)");
+}
+
 const clients = new Set();
 
 const sync = new SyncEngine(engine, {
@@ -54,9 +72,18 @@ const sync = new SyncEngine(engine, {
   }
 });
 
-// Seed some starter todos
-sync.assertFact(compound("todo", [atom("seed-1"), atom("Try adding a todo"), atom("active"), atom("Server")]));
-sync.assertFact(compound("todo", [atom("seed-2"), atom("Open a second browser tab"), atom("active"), atom("Server")]));
+// Bridge: populate SyncEngine._facts with any facts restored from DB
+for (const c of engine.clauses) {
+  if (c.body.length === 0 && c.head.type === "compound" && c.head.functor === "todo") {
+    sync._facts.push(c.head);
+  }
+}
+
+// Seed starter todos only if DB was empty
+if (sync._facts.length === 0) {
+  sync.assertFact(compound("todo", [atom("seed-1"), atom("Try adding a todo"), atom("active"), atom("Server")]));
+  sync.assertFact(compound("todo", [atom("seed-2"), atom("Open a second browser tab"), atom("active"), atom("Server")]));
+}
 
 // ── Validation ──────────────────────────────────────────────
 
