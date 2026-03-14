@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Y@ — Decision Logic for JS, Python, and C</title>
+<title>Y@ — Encrypted Reactive Database</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -522,14 +522,14 @@ footer a:hover { text-decoration: underline; }
 <header class="hero">
   <h1>Y@</h1>
   <p class="tagline">
-    A tiny Prolog engine with reactive bindings.
-    Write decision logic as rules, not nested if/else.
-    JavaScript. Python. C. Same engine, same API.
+    An encrypted reactive database that happens to use Prolog.
+    Typed storage. Reactive queries. Encryption at rest.
+    JavaScript. Python. C. One engine.
   </p>
   <div class="hero-features">
-    <span class="hero-badge"><span class="dot green"></span>Inference engine (~300 lines)</span>
-    <span class="hero-badge"><span class="dot amber"></span>Reactive signals + memos</span>
-    <span class="hero-badge"><span class="dot primary"></span>Zero dependencies</span>
+    <span class="hero-badge"><span class="dot green"></span>Reactive engine + exact decimals</span>
+    <span class="hero-badge"><span class="dot amber"></span>Encrypted storage (SQLCipher)</span>
+    <span class="hero-badge"><span class="dot primary"></span>Zero dependencies &middot; 24 test suites</span>
   </div>
 </header>
 
@@ -555,8 +555,8 @@ footer a:hover { text-decoration: underline; }
   <div class="section-title">Playground</div>
   <h2 class="section-heading">Try the engine</h2>
   <p class="section-desc">
-    Edit the code below and hit Run. Each tab builds on the last &mdash;
-    facts, rules, dynamic state, custom builtins.
+    Edit the code below and hit Run. Each tab demonstrates a different
+    capability &mdash; from first facts to price triggers and hardened rules.
   </p>
   <div id="playground"></div>
 </section>
@@ -569,8 +569,10 @@ footer a:hover { text-decoration: underline; }
   <div class="section-title">Examples</div>
   <h2 class="section-heading">What you can build</h2>
   <p class="section-desc">
-    Each demo is a single HTML file &mdash; no build step, no bundler.
-    SolidJS from CDN, Prolog engine inlined, everything runs in the browser.
+    12 examples from form validation to encrypted price monitoring.
+    Browser demos run from a single HTML file &mdash; no build step.
+    Server examples use fossilized rules and QJSON exact decimals.
+    24 test suites, 700+ tests.
   </p>
   <div class="demo-cards">
     <a class="demo-card" href="demos/form.html">
@@ -730,6 +732,10 @@ rp.bump()  <span style="color:var(--text-dim)"># status() recomputes, effect fir
   <p>
     <a href="https://github.com/wmacevoy/wyatt">GitHub</a>
     &nbsp;&middot;&nbsp; MIT License &nbsp;&middot;&nbsp; Zero dependencies
+    &nbsp;&middot;&nbsp; 24 test suites
+  </p>
+  <p style="margin-top: 8px;">
+    Encrypted reactive database. Rules are the product, not the code.
   </p>
 </footer>
 
@@ -1042,6 +1048,94 @@ for (const r of engine.query(c("name", [v("N")]))) {
   const name = r.args[0].name;
   log("  " + name + " (" + name.length + " chars)");
 }`
+  },
+  {
+    name: "Price Triggers",
+    code: `const engine = new PrologEngine();
+const { atom: a, variable: v, compound: c, num: n } = PrologEngine;
+
+// Thresholds (in production: mineralize these)
+engine.addClause(c("threshold", [a("btc"), a("above"), n(70000), a("sell_alert")]));
+engine.addClause(c("threshold", [a("btc"), a("below"), n(60000), a("buy_alert")]));
+engine.addClause(c("threshold", [a("eth"), a("above"), n(4000), a("sell_alert")]));
+
+// Trigger detection rules
+engine.addClause(
+  c("triggered", [v("S"), v("Action"), v("Price"), v("Level")]),
+  [c("price", [v("S"), v("Price")]),
+   c("threshold", [v("S"), a("above"), v("Level"), v("Action")]),
+   c(">", [v("Price"), v("Level")])]
+);
+engine.addClause(
+  c("triggered", [v("S"), v("Action"), v("Price"), v("Level")]),
+  [c("price", [v("S"), v("Price")]),
+   c("threshold", [v("S"), a("below"), v("Level"), v("Action")]),
+   c("<", [v("Price"), v("Level")])]
+);
+
+// Feed BTC at $72,500 (above threshold)
+engine.addClause(c("price", [a("btc"), n(72500)]));
+engine.addClause(c("price", [a("eth"), n(3500)]));
+
+log("Prices:  BTC $72,500  |  ETH $3,500");
+log("");
+
+const alerts = engine.query(c("triggered", [v("S"), v("A"), v("P"), v("L")]));
+for (const r of alerts)
+  log("ALERT: " + r.args[0].name.toUpperCase() + " " + r.args[1].name +
+      " (price $" + r.args[2].value + " > threshold $" + r.args[3].value + ")");
+if (!alerts.length) log("No alerts.");
+
+// Drop BTC to safe range
+engine.retractFirst(c("price", [a("btc"), v("_")]));
+engine.addClause(c("price", [a("btc"), n(65000)]));
+log("");
+log("BTC drops to $65,000...");
+const a2 = engine.query(c("triggered", [v("S"), v("A"), v("P"), v("L")]));
+log(a2.length ? "Still alerting" : "All clear. Price in safe range.");`
+  },
+  {
+    name: "Access Control",
+    code: `const engine = new PrologEngine();
+const { atom: a, variable: v, compound: c } = PrologEngine;
+
+// Roles and permissions
+engine.addClause(c("role", [a("alice"), a("admin")]));
+engine.addClause(c("role", [a("bob"), a("editor")]));
+engine.addClause(c("role", [a("charlie"), a("viewer")]));
+
+engine.addClause(c("perm", [a("admin"), a("read")]));
+engine.addClause(c("perm", [a("admin"), a("write")]));
+engine.addClause(c("perm", [a("admin"), a("delete")]));
+engine.addClause(c("perm", [a("editor"), a("read")]));
+engine.addClause(c("perm", [a("editor"), a("write")]));
+engine.addClause(c("perm", [a("viewer"), a("read")]));
+
+// Authorization rule
+engine.addClause(
+  c("authorized", [v("User"), v("Action")]),
+  [c("role", [v("User"), v("Role")]),
+   c("perm", [v("Role"), v("Action")])]
+);
+
+for (const user of ["alice", "bob", "charlie"]) {
+  const perms = engine.query(c("authorized", [a(user), v("A")]));
+  log(user + ": " + perms.map(r => r.args[1].name).join(", "));
+}
+
+log("");
+const r = engine.queryFirst(c("authorized", [a("charlie"), a("delete")]));
+log("charlie delete? " + (r ? "yes" : "DENIED"));
+
+// Runtime: revoke editor write
+log("");
+log("--- revoke editor write ---");
+engine.retractFirst(c("perm", [a("editor"), a("write")]));
+const r2 = engine.queryFirst(c("authorized", [a("bob"), a("write")]));
+log("bob write? " + (r2 ? "yes" : "REVOKED"));
+log("");
+log("mineralize(perm/2) would prevent this.");
+log("The rules become gems. The data is water.");`
   }
 ];
 
