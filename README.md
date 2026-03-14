@@ -8,7 +8,7 @@ systems, web apps, and everything in between.
 Python.  JavaScript.  C.  Same engine, same API, same tests.
 
 ```
-./test.sh          # 410 tests: 19 C + 45 Python + 346 JavaScript
+./test.sh          # 425 tests: 19 C + 53 Python + 353 JavaScript
 ```
 
 Zero dependencies.  No package managers.  No build tools.
@@ -41,6 +41,8 @@ src/
   sync.js                 Term serialization + fact sync
   sync-client.js          Offline-capable sync client
   tracer.js               Query execution tracer
+  persist.js / persist.py SQLite/PG persistence — one function call
+  qjson.js / qjson.py     QJSON: JSON + comments + BigInt/BigDecimal/BigFloat
 
 native/
   prolog_core.h           C native acceleration header
@@ -57,7 +59,7 @@ examples/
   margin/                 Margin trading triggers
     margin-kb.js + test.js    JavaScript: 28 tests (QuickJS BigDecimal)
   nng-mesh/               IoT sensor mesh (40 tests)
-  greenhouse/             Multi-runtime IoT — C + JS + Python (49 tests)
+  greenhouse/             Multi-runtime IoT — C + JS + Python (52 tests)
   sync-todo/              Collaborative todos over WebSocket (33 tests)
   form/                   SolidJS form validator (browser)
   tictactoe/              Tic-tac-toe with Prolog AI (browser)
@@ -225,6 +227,56 @@ var result = engine.queryWithSends(
 
 React rules express the complete response — what to store AND what to
 send — so the host only needs to dispatch the accumulated messages.
+
+### Persistence
+
+One function call makes assert/retract durable:
+
+```python
+from persist import persist
+engine = Engine()
+db = persist(engine, "state.db")
+# done — facts survive restart, ephemeral = SQL transaction
+```
+
+```javascript
+persist(engine, new Database('state.db'));
+```
+
+Hooks the engine transparently.  All dynamic facts (assert/retract,
+addClause, retractFirst) write through to SQLite or PostgreSQL.
+Ephemeral scopes become SQL transactions — all mutations inside one
+signal handler commit atomically.  Crash mid-ephemeral → rollback.
+
+Optional QJSON codec for BigInt/BigDecimal/BigFloat terms:
+
+```python
+persist(engine, "state.db", codec="qjson")
+```
+
+### QJSON — zero impedance messaging
+
+JSON superset using QuickJS bignum syntax.  No collisions with JSON.
+
+```javascript
+{
+  // sensor calibration config
+  name: "thermocouple-7",       // unquoted keys
+  offset: 0.003M,               // BigDecimal — arbitrary precision base-10
+  nonce: 42N,                   // BigInt — arbitrary precision integer
+  calibration: 3.14159L,        // BigFloat — arbitrary precision base-2
+  readings: [22.5, 23.1,],      // trailing commas
+  /* nested /* block */ comments */
+}
+```
+
+Parse accepts uppercase or lowercase suffixes (`N`/`n`, `M`/`m`,
+`L`/`l`).  Serialize always uses uppercase — consistent and visible.
+Valid JSON is valid QJSON.
+
+When used as a persist codec, the read path tries native `JSON.parse`
+first (C, fast) and falls back to the QJSON parser only when needed.
+Cost for the 99.999% of data that is plain JSON: zero.
 
 ## Examples
 

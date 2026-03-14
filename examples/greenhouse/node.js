@@ -9,6 +9,7 @@
 import { PrologEngine } from "../../src/prolog-engine.js";
 import { serialize, deserialize, SyncEngine } from "../../src/sync.js";
 import { createReactiveEngine } from "../../src/reactive-prolog.js";
+import { persist } from "../../src/persist.js";
 import { buildGreenhouseKB } from "./greenhouse-kb.js";
 
 const { atom, variable, compound, num } = PrologEngine;
@@ -19,6 +20,7 @@ export class GreenhouseNode {
    * @param {string} options.id — unique node identifier
    * @param {string} options.role — "coordinator", "sensor", "estimator", "gateway"
    * @param {object} options.transport — SimTransport or UDP transport
+   * @param {object} [options.db] — SQL adapter for persistence (optional)
    */
   constructor(options) {
     this.id = options.id;
@@ -28,6 +30,13 @@ export class GreenhouseNode {
 
     const engine = buildGreenhouseKB(PrologEngine, this.id, this.role);
     const reactive = createReactiveEngine(engine);
+
+    // Attach persistence — ephemeral/1 is already registered by
+    // createReactiveEngine, so ephemeral scopes = SQL transactions.
+    if (options.db) {
+      this.db = persist(engine, options.db);
+    }
+
     const sync = new SyncEngine(engine, { onSync: reactive.bump });
 
     this.engine = engine;

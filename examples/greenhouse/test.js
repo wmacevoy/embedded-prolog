@@ -690,6 +690,110 @@ describe("End-to-end scenario", () => {
   });
 });
 
+// ── Persistence ─────────────────────────────────────────────
+
+// In-memory mock adapter (no SQLite needed for tests)
+function MockAdapter() { this._rows = {}; }
+MockAdapter.prototype.exec = function() {};
+MockAdapter.prototype.run = function(sql, params) {
+  if (sql.indexOf("INSERT") === 0) this._rows[params[0]] = true;
+  else if (sql.indexOf("DELETE") === 0) delete this._rows[params[0]];
+};
+MockAdapter.prototype.all = function() {
+  var result = [], keys = Object.keys(this._rows);
+  for (var i = 0; i < keys.length; i++) result.push({ term: keys[i] });
+  return result;
+};
+
+describe("Persistence", function() {
+  it("coordinator readings survive restart", function() {
+    const db = new MockAdapter();
+    const bus = new SimBus();
+
+    const coord1 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator"), db
+    });
+
+    // Register sensor + send a reading
+    coord1.engine.queryFirst(compound("assert",
+      [compound("node_status", [atom("sensor_1"), atom("online")])]));
+    coord1._handleSignal("sensor_1", {
+      kind: "signal", from: "sensor_1",
+      fact: serialize(compound("reading",
+        [atom("sensor_1"), atom("temperature"), num(25), num(1000)]))
+    });
+
+    const r1 = coord1.queryFirst(compound("reading",
+      [atom("sensor_1"), atom("temperature"), variable("V"), variable("T")]));
+    assert(r1 !== null, "reading should be accepted");
+    eq(r1.args[2].value, 25);
+
+    // "Restart": new coordinator, same DB
+    const coord2 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator2"), db
+    });
+
+    const r2 = coord2.queryFirst(compound("reading",
+      [atom("sensor_1"), atom("temperature"), variable("V"), variable("T")]));
+    assert(r2 !== null, "reading should survive restart");
+    eq(r2.args[2].value, 25);
+  });
+
+  it("threshold updates persist", function() {
+    const db = new MockAdapter();
+    const bus = new SimBus();
+
+    const coord1 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator"), db
+    });
+
+    // Update threshold via assert (retractall + assert pattern)
+    coord1.engine.queryFirst(compound("retractall",
+      [compound("threshold", [atom("temperature"), variable("_"), variable("_")])]));
+    coord1.engine.queryFirst(compound("assert",
+      [compound("threshold", [atom("temperature"), num(10), num(35)])]));
+
+    // Restart
+    const coord2 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator2"), db
+    });
+
+    // Should have BOTH default threshold (from loadString) AND persisted one
+    const thresholds = coord2.engine.query(compound("threshold",
+      [atom("temperature"), variable("Min"), variable("Max")]));
+    // The persisted one should be present
+    const persisted = thresholds.find(t => t.args[1].value === 10 && t.args[2].value === 35);
+    assert(persisted, "persisted threshold should survive restart");
+  });
+
+  it("node_status persists across restart", function() {
+    const db = new MockAdapter();
+    const bus = new SimBus();
+
+    const coord1 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator"), db
+    });
+    coord1._handleSignal("sensor_1", {
+      kind: "signal", from: "sensor_1",
+      fact: serialize(compound("node_status", [atom("sensor_1"), atom("online")]))
+    });
+
+    const coord2 = new GreenhouseNode({
+      id: "coordinator", role: "coordinator",
+      transport: bus.createTransport("coordinator2"), db
+    });
+    const status = coord2.queryFirst(compound("node_status",
+      [atom("sensor_1"), variable("S")]));
+    assert(status !== null, "node_status should survive restart");
+    eq(status.args[1].name, "online");
+  });
+});
+
 // ── Summary ─────────────────────────────────────────────────
 
 console.log(`\n  ${_pass} passing, ${_fail} failing`);
