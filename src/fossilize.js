@@ -1,21 +1,121 @@
 // ============================================================
 // fossilize.js — Freeze a Prolog engine's clause database
+// mineralize.js — Selectively lock specific predicates
 //
-// After fossilize(), the engine is uncorruptable:
-//   - assert/1, retract/1, retractall/1 → fail (no solutions)
-//   - addClause → no-op
-//   - ephemeral/1 still works (scoped, auto-retracted)
-//   - queries still work (rules + facts are readable)
+// Two modes of hardening:
 //
-// The engine becomes a pure decision function:
-//   events in (ephemeral) → decisions out (send/2)
-//   No Prolog injection can modify the knowledge base.
+//   mineralize(engine, "react", 0)
+//     → react/0 is immutable.  Everything else stays dynamic.
+//     → Additive, one-way.  Call multiple times for multiple preds.
+//
+//   fossilize(engine)
+//     → ALL clauses frozen.  Only ephemeral survives.
+//     → Terminal.  Nothing changes after this.
 //
 // Portable: ES5, no dependencies.
-//
-// Usage:
-//   fossilize(engine);
 // ============================================================
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function _predKey(term) {
+  if (!term) return null;
+  if (term.type === "compound") return term.functor + "/" + term.args.length;
+  if (term.type === "atom") return term.name + "/0";
+  return null;
+}
+
+// ── mineralize ──────────────────────────────────────────────
+
+function mineralize(engine, functor, arity) {
+  // Initialize mineralized set if needed
+  if (!engine.mineralized) {
+    engine.mineralized = {};
+    _installMineralizeGuards(engine);
+  }
+  engine.mineralized[functor + "/" + arity] = true;
+}
+
+function _installMineralizeGuards(engine) {
+  // Guard addClause
+  var origAdd = engine.addClause.bind(engine);
+  engine.addClause = function(head, body) {
+    var key = _predKey(head);
+    if (key && engine.mineralized[key]) return;
+    origAdd(head, body);
+  };
+
+  // Guard retractFirst
+  var origRetract = engine.retractFirst.bind(engine);
+  engine.retractFirst = function(head) {
+    var key = _predKey(head);
+    if (key && engine.mineralized[key]) return false;
+    return origRetract(head);
+  };
+
+  // Guard assert/1
+  var origAssert = engine.builtins["assert/1"];
+  engine.builtins["assert/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+    var term = engine.deepWalk(goal.args[0], subst);
+    var key = _predKey(term);
+    if (key && engine.mineralized[key]) return; // fail
+    origAssert(goal, rest, subst, counter, depth, onSolution);
+  };
+
+  // Guard assertz/1 (alias)
+  var origAssertz = engine.builtins["assertz/1"];
+  if (origAssertz) {
+    engine.builtins["assertz/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+      var term = engine.deepWalk(goal.args[0], subst);
+      var key = _predKey(term);
+      if (key && engine.mineralized[key]) return;
+      origAssertz(goal, rest, subst, counter, depth, onSolution);
+    };
+  }
+
+  // Guard retract/1
+  var origRetractBuiltin = engine.builtins["retract/1"];
+  engine.builtins["retract/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+    var term = engine.deepWalk(goal.args[0], subst);
+    var key = _predKey(term);
+    if (key && engine.mineralized[key]) return;
+    origRetractBuiltin(goal, rest, subst, counter, depth, onSolution);
+  };
+
+  // Guard retractall/1
+  var origRetractAll = engine.builtins["retractall/1"];
+  engine.builtins["retractall/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+    var term = engine.deepWalk(goal.args[0], subst);
+    var key = _predKey(term);
+    if (key && engine.mineralized[key]) return;
+    origRetractAll(goal, rest, subst, counter, depth, onSolution);
+  };
+
+  // Guard ephemeral/1 (if registered)
+  if (engine.builtins["ephemeral/1"]) {
+    var origEph = engine.builtins["ephemeral/1"];
+    engine.builtins["ephemeral/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+      var term = engine.deepWalk(goal.args[0], subst);
+      var key = _predKey(term);
+      if (key && engine.mineralized[key]) return;
+      origEph(goal, rest, subst, counter, depth, onSolution);
+    };
+  }
+
+  // mineralize/1 builtin — callable from Prolog
+  engine.builtins["mineralize/1"] = function(goal, rest, subst, counter, depth, onSolution) {
+    var term = engine.deepWalk(goal.args[0], subst);
+    if (term.type === "compound" && term.functor === "/" && term.args.length === 2) {
+      var f = term.args[0];
+      var a = term.args[1];
+      if (f.type === "atom" && a.type === "num") {
+        engine.mineralized[f.name + "/" + a.value] = true;
+      }
+    }
+    engine.solve(rest, subst, counter, depth + 1, onSolution);
+  };
+}
+
+// ── fossilize ───────────────────────────────────────────────
 
 function fossilize(engine) {
   var boundary = engine.clauses.length;
@@ -55,5 +155,6 @@ function fossilize(engine) {
 
 if (typeof exports !== "undefined") {
   exports.fossilize = fossilize;
+  exports.mineralize = mineralize;
 }
-export { fossilize };
+export { fossilize, mineralize };

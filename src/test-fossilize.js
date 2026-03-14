@@ -5,7 +5,7 @@
 // ============================================================
 
 import { PrologEngine } from './prolog-engine.js';
-import { fossilize } from './fossilize.js';
+import { fossilize, mineralize } from './fossilize.js';
 
 var atom = PrologEngine.atom;
 var compound = PrologEngine.compound;
@@ -131,6 +131,107 @@ test("injection attempt fails", function() {
   e.queryFirst(compound("assert", [compound("trusted", [atom("evil")])]));
   assert(e.queryFirst(compound("check", [atom("evil")])) === null, "injection blocked");
   assert(e.queryFirst(compound("check", [atom("sensor_1")])) !== null, "original intact");
+});
+
+// ── mineralize tests ────────────────────────────────────────
+
+test("mineralize blocks assert on locked predicate", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("threshold", [atom("btc"), num(70000)]));
+  mineralize(e, "threshold", 2);
+  e.queryFirst(compound("assert", [compound("threshold", [atom("eth"), num(4000)])]));
+  var results = e.query(compound("threshold", [variable("S"), variable("L")]));
+  assert(results.length === 1, "only original threshold, got " + results.length);
+});
+
+test("mineralize blocks retract on locked predicate", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("threshold", [atom("btc"), num(70000)]));
+  mineralize(e, "threshold", 2);
+  e.queryFirst(compound("retract", [compound("threshold", [atom("btc"), num(70000)])]));
+  var results = e.query(compound("threshold", [variable("S"), variable("L")]));
+  assert(results.length === 1, "threshold should survive retract");
+});
+
+test("mineralize blocks retractall on locked predicate", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("threshold", [atom("btc"), num(70000)]));
+  e.addClause(compound("threshold", [atom("eth"), num(4000)]));
+  mineralize(e, "threshold", 2);
+  e.queryFirst(compound("retractall", [compound("threshold", [variable("_"), variable("__")])]));
+  var results = e.query(compound("threshold", [variable("S"), variable("L")]));
+  assert(results.length === 2, "both thresholds survive");
+});
+
+test("mineralize allows mutation on unlocked predicates", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("threshold", [atom("btc"), num(70000)]));
+  mineralize(e, "threshold", 2);
+  // price/2 is NOT mineralized
+  e.queryFirst(compound("assert", [compound("price", [atom("btc"), num(65000)])]));
+  var prices = e.query(compound("price", [variable("S"), variable("P")]));
+  assert(prices.length === 1, "price should be asserted");
+  e.queryFirst(compound("retractall", [compound("price", [variable("_"), variable("__")])]));
+  prices = e.query(compound("price", [variable("S"), variable("P")]));
+  assert(prices.length === 0, "price should be retracted");
+});
+
+test("mineralize blocks addClause on locked predicate", function() {
+  var e = new PrologEngine();
+  mineralize(e, "react", 0);
+  e.addClause(atom("react"), [atom("something")]);
+  assert(e.clauses.length === 0, "addClause should be blocked");
+});
+
+test("mineralize multiple predicates independently", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("rule_a", [num(1)]));
+  e.addClause(compound("rule_b", [num(2)]));
+  e.addClause(compound("data_c", [num(3)]));
+  mineralize(e, "rule_a", 1);
+  mineralize(e, "rule_b", 1);
+  // rule_a and rule_b locked, data_c open
+  e.queryFirst(compound("assert", [compound("rule_a", [num(99)])]));
+  e.queryFirst(compound("assert", [compound("rule_b", [num(99)])]));
+  e.queryFirst(compound("assert", [compound("data_c", [num(99)])]));
+  assert(e.query(compound("rule_a", [variable("N")])).length === 1, "rule_a locked");
+  assert(e.query(compound("rule_b", [variable("N")])).length === 1, "rule_b locked");
+  assert(e.query(compound("data_c", [variable("N")])).length === 2, "data_c open");
+});
+
+test("mineralize is one-way (can't un-mineralize)", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("x", [num(1)]));
+  mineralize(e, "x", 1);
+  // No API to un-mineralize
+  assert(e.mineralized["x/1"] === true);
+  e.queryFirst(compound("assert", [compound("x", [num(2)])]));
+  assert(e.query(compound("x", [variable("N")])).length === 1, "still locked");
+});
+
+test("mineralize/1 callable from Prolog", function() {
+  var e = new PrologEngine();
+  mineralize(e, "_dummy", 0);  // initialize guards
+  e.addClause(compound("secret", [num(42)]));
+  e.queryFirst(compound("mineralize", [compound("/", [atom("secret"), num(1)])]));
+  e.queryFirst(compound("assert", [compound("secret", [num(99)])]));
+  var results = e.query(compound("secret", [variable("N")]));
+  assert(results.length === 1, "secret locked via Prolog mineralize/1");
+  assert(results[0].args[0].value === 42, "original value intact");
+});
+
+test("mineralize then fossilize", function() {
+  var e = new PrologEngine();
+  e.addClause(compound("rule", [num(1)]));
+  e.addClause(compound("data", [num(2)]));
+  mineralize(e, "rule", 1);
+  // data still open
+  e.queryFirst(compound("assert", [compound("data", [num(3)])]));
+  assert(e.query(compound("data", [variable("N")])).length === 2, "data open before fossilize");
+  // now fossilize — locks everything
+  fossilize(e);
+  e.queryFirst(compound("assert", [compound("data", [num(4)])]));
+  assert(e.query(compound("data", [variable("N")])).length === 2, "data locked after fossilize");
 });
 
 console.log("\n" + (passed + failed) + " tests: " + passed + " passed, " + failed + " failed");
