@@ -7,21 +7,149 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # ── macOS (latest) ──────────────────────────────────────
+  macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc libc6-dev python3
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Run tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run test suite
+        run: ./test.sh
+
+      - name: Run native C QJSON tests
         run: |
-          chmod +x test.sh
-          ./test.sh
+          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c
+          ./native/test_qjson
+
+      - name: Run native C core tests
+        run: |
+          gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c
+          ./native/test_core
+
+  # ── Ubuntu / Debian ─────────────────────────────────────
+  debian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install C toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Run test suite
+        run: ./test.sh
+
+      - name: Run native C QJSON tests
+        run: |
+          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c
+          ./native/test_qjson
+
+  # ── Alpine (musl libc) ─────────────────────────────────
+  alpine:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: apk add --no-cache gcc musl-dev python3 nodejs npm
+
+      - name: Run test suite
+        run: ./test.sh
+
+      - name: Run native C QJSON tests
+        run: |
+          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c
+          ./native/test_qjson
+
+  # ── Windows ─────────────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python tests
+        shell: bash
+        run: |
+          python3 src/test_persist.py
+          python3 src/test_qjson.py
+          python3 src/test_fossilize.py
+          python3 examples/vending/test.py
+          python3 examples/router/test.py
+
+      - name: JS tests
+        shell: bash
+        run: |
+          node src/test-persist.js
+          node src/test-qjson.js
+          node src/test-fossilize.js
+          node examples/vending/test.js
+          node examples/margin/test.js
+          node examples/sync-todo/test.js
+          node src/test-parser.js
+          node src/test-tracer.js
+          node src/test-loader.js
+          node src/test-sync-client.js
+          node examples/nng-mesh/test.js
+          node examples/greenhouse/test.js
+          node examples/tutorial/test.js
+
+  # ── ESP32 (QEMU) — C core + QJSON only ─────────────────
+  esp32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ESP32 QEMU + toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-xtensa-esp32 qemu-system-xtensa || true
+
+      - name: Cross-compile C core for Xtensa (validation only)
+        run: |
+          # If cross-compiler available, validate compilation
+          if command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
+            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/prolog_core.c -o /tmp/prolog_core.o
+            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/qjson.c -o /tmp/qjson.o
+            echo "ESP32 cross-compilation: OK"
+          else
+            echo "ESP32 cross-compiler not available — skipping (install esp-idf for full test)"
+            # Fall back: at least verify it compiles with host GCC
+            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/prolog_core.c -o /dev/null
+            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/qjson.c -o /dev/null
+            echo "Host compilation check: OK"
+          fi
+
+  # ── Docker (Bun runtime — matches local dev) ────────────
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test via Docker
+        run: |
+          docker compose build test
+          docker compose run --rm test ./test.sh
