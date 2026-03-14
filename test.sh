@@ -97,6 +97,8 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
       "$JS examples/tutorial/test.js"
     run "JS crypto sentinel ($JS, 30 tests)" \
       "$JS examples/crypto-sentinel/test.js"
+    run "JS crypto sentinel server ($JS, 25 tests)" \
+      "$JS examples/crypto-sentinel/test-server.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi
