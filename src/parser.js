@@ -189,19 +189,45 @@ Tokenizer.prototype._tokenize = function() {
       continue;
     }
 
-    // Numbers
+    // Numbers (with optional QJSON suffix: N=BigInt, M=BigDecimal, L=BigFloat)
     if (_isDigit(ch)) {
       var numStr = "";
       while (this.pos < this.text.length && _isDigit(this._peek())) {
         numStr += this._advance();
       }
       // Check for float
+      var isFloat = false;
       if (this.pos < this.text.length && this._peek() === "." &&
           this.pos + 1 < this.text.length && _isDigit(this.text.charAt(this.pos + 1))) {
+        isFloat = true;
         numStr += this._advance(); // the dot
         while (this.pos < this.text.length && _isDigit(this._peek())) {
           numStr += this._advance();
         }
+      }
+      // Check for exponent
+      if (this.pos < this.text.length && (this._peek() === "e" || this._peek() === "E")) {
+        isFloat = true;
+        numStr += this._advance();
+        if (this.pos < this.text.length && (this._peek() === "+" || this._peek() === "-")) {
+          numStr += this._advance();
+        }
+        while (this.pos < this.text.length && _isDigit(this._peek())) {
+          numStr += this._advance();
+        }
+      }
+      // Check for QJSON suffix (only if next char is N/n/M/m/L/l and not followed by alnum)
+      var suffix = this.pos < this.text.length ? this._peek() : "";
+      var afterSuffix = this.pos + 1 < this.text.length ? this.text.charAt(this.pos + 1) : "";
+      if ((suffix === "N" || suffix === "n" || suffix === "M" || suffix === "m" ||
+           suffix === "L" || suffix === "l") && !_isAlnum(afterSuffix)) {
+        this._advance();
+        var canon = suffix.toUpperCase();
+        var val = isFloat ? parseFloat(numStr) : parseInt(numStr, 10);
+        this.tokens.push({ type: TOK_NUM, value: val, repr: numStr + canon });
+        continue;
+      }
+      if (isFloat) {
         this.tokens.push({ type: TOK_NUM, value: parseFloat(numStr) });
       } else {
         this.tokens.push({ type: TOK_NUM, value: parseInt(numStr, 10) });
@@ -372,7 +398,9 @@ Parser.prototype._parsePrimary = function() {
         var nextTok = this.tokenizer.peek();
         if (nextTok.type === TOK_NUM) {
           this.tokenizer.next();
-          return { type: "num", value: -nextTok.value };
+          var nterm = { type: "num", value: -nextTok.value };
+          if (nextTok.repr) nterm.repr = "-" + nextTok.repr;
+          return nterm;
         }
 
         var rightPrec;
@@ -424,10 +452,12 @@ Parser.prototype._parsePrimary = function() {
     return this._parseList();
   }
 
-  // Number
+  // Number (with optional QJSON repr)
   if (tok.type === TOK_NUM) {
     this.tokenizer.next();
-    return { type: "num", value: tok.value };
+    var nterm = { type: "num", value: tok.value };
+    if (tok.repr) nterm.repr = tok.repr;
+    return nterm;
   }
 
   // Variable

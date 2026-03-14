@@ -138,6 +138,85 @@ describe("Numbers", function() {
     assert.equal(t.type, "num");
     assert.equal(t.value, -3.14);
   });
+
+  it("parses BigInt suffix N", function() {
+    var t = parseTerm("42N");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, 42);
+    assert.equal(t.repr, "42N");
+  });
+
+  it("parses BigInt suffix lowercase n", function() {
+    var t = parseTerm("42n");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, 42);
+    assert.equal(t.repr, "42N");
+  });
+
+  it("parses BigDecimal suffix M", function() {
+    var t = parseTerm("187.68M");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, 187.68);
+    assert.equal(t.repr, "187.68M");
+  });
+
+  it("parses BigDecimal integer form M", function() {
+    var t = parseTerm("100M");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, 100);
+    assert.equal(t.repr, "100M");
+  });
+
+  it("parses BigFloat suffix L", function() {
+    var t = parseTerm("3.14L");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, 3.14);
+    assert.equal(t.repr, "3.14L");
+  });
+
+  it("parses negative BigDecimal", function() {
+    var t = parseTerm("-187.68M");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, -187.68);
+    assert.equal(t.repr, "-187.68M");
+  });
+
+  it("parses negative BigInt", function() {
+    var t = parseTerm("-42N");
+    assert.equal(t.type, "num");
+    assert.equal(t.value, -42);
+    assert.equal(t.repr, "-42N");
+  });
+
+  it("plain number has no repr", function() {
+    var t = parseTerm("42");
+    assert.equal(t.repr, undefined);
+  });
+
+  it("BigInt in compound", function() {
+    var t = parseTerm("price(aapl, 187M)");
+    assert.equal(t.type, "compound");
+    assert.equal(t.args[1].type, "num");
+    assert.equal(t.args[1].value, 187);
+    assert.equal(t.args[1].repr, "187M");
+  });
+
+  it("number followed by variable is separate tokens", function() {
+    var t = parseTerm("f(42, N)");
+    assert.equal(t.args[0].type, "num");
+    assert.equal(t.args[0].value, 42);
+    assert.equal(t.args[0].repr, undefined);
+    assert.equal(t.args[1].type, "var");
+    assert.equal(t.args[1].name, "N");
+  });
+
+  it("number followed by identifier is separate tokens", function() {
+    var t = parseTerm("f(42, name)");
+    assert.equal(t.args[0].type, "num");
+    assert.equal(t.args[0].value, 42);
+    assert.equal(t.args[1].type, "atom");
+    assert.equal(t.args[1].name, "name");
+  });
 });
 
 describe("Variables", function() {
@@ -854,6 +933,45 @@ describe("Edge cases", function() {
       PrologEngine.variable("X")
     ]);
     assert.deepEqual(parsed, built);
+  });
+});
+
+describe("QJSON round-trip via termToString", function() {
+  it("BigInt round-trips", function() {
+    var t = parseTerm("42N");
+    assert.equal(termToString(t), "42N");
+  });
+
+  it("BigDecimal round-trips", function() {
+    var t = parseTerm("187.68M");
+    assert.equal(termToString(t), "187.68M");
+  });
+
+  it("BigFloat round-trips", function() {
+    var t = parseTerm("3.14L");
+    assert.equal(termToString(t), "3.14L");
+  });
+
+  it("negative BigDecimal round-trips", function() {
+    var t = parseTerm("-187.68M");
+    assert.equal(termToString(t), "-187.68M");
+  });
+
+  it("QJSON in compound round-trips", function() {
+    var t = parseTerm("price(aapl, 187.68M)");
+    assert.equal(termToString(t), "price(aapl,187.68M)");
+  });
+
+  it("plain number has no suffix", function() {
+    var t = parseTerm("42");
+    assert.equal(termToString(t), "42");
+  });
+
+  it("QJSON in program clause", function() {
+    var clauses = parseProgram("price(aapl, 187.68M). threshold(100N).");
+    assert.equal(clauses.length, 2);
+    assert.equal(termToString(clauses[0].head), "price(aapl,187.68M)");
+    assert.equal(termToString(clauses[1].head), "threshold(100N)");
   });
 });
 

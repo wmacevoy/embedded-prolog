@@ -20,7 +20,11 @@ from prolog import deep_walk, unify
 
 def _ser(term):
     if term[0] == "atom":     return {"t": "a", "n": term[1]}
-    if term[0] == "num":      return {"t": "n", "v": term[1]}
+    if term[0] == "num":
+        o = {"t": "n", "v": term[1]}
+        if len(term) > 2 and term[2]:
+            o["r"] = term[2]
+        return o
     if term[0] == "compound":
         return {"t": "c", "f": term[1], "a": [_ser(a) for a in term[2]]}
     return None
@@ -28,7 +32,10 @@ def _ser(term):
 
 def _deser(obj):
     if obj["t"] == "a": return ("atom", obj["n"])
-    if obj["t"] == "n": return ("num", obj["v"])
+    if obj["t"] == "n":
+        if "r" in obj:
+            return ("num", obj["v"], obj["r"])
+        return ("num", obj["v"])
     if obj["t"] == "c":
         return ("compound", obj["f"], tuple(_deser(a) for a in obj["a"]))
     return None

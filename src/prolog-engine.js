@@ -30,7 +30,7 @@ function PrologEngine() {
 PrologEngine.atom = function(name) { return { type: "atom", name: name }; };
 PrologEngine.variable = function(name) { return { type: "var", name: name }; };
 PrologEngine.compound = function(functor, args) { return { type: "compound", functor: functor, args: args }; };
-PrologEngine.num = function(n) { return { type: "num", value: n }; };
+PrologEngine.num = function(n, repr) { var t = { type: "num", value: n }; if (repr) t.repr = repr; return t; };
 
 PrologEngine.list = function(items, tail) {
   var l = tail || PrologEngine.atom("[]");
@@ -445,7 +445,7 @@ function _termEq(a, b) {
 function termToString(term) {
   if (!term) return "?";
   if (term.type === "atom") return term.name;
-  if (term.type === "num")  return String(term.value);
+  if (term.type === "num")  return term.repr || String(term.value);
   if (term.type === "var")  return term.name;
   if (term.type === "compound") {
     if (term.functor === "." && term.args.length === 2) {

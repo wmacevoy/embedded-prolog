@@ -43,6 +43,8 @@ if [ -z "$1" ] || [ "$1" = "python" ]; then
   if [ -n "$PYTHON" ]; then
     run "Python persist ($PYTHON, 11 tests)" \
       "$PYTHON src/test_persist.py"
+    run "Python QSQL ($PYTHON, 18 tests)" \
+      "$PYTHON src/test_qsql.py"
     run "Python QJSON ($PYTHON, 37 tests)" \
       "$PYTHON src/test_qjson.py"
     run "Python fossilize ($PYTHON, 9 tests)" \
@@ -65,6 +67,10 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
   if [ -n "$JS" ]; then
     run "JS persist ($JS, 10 tests)" \
       "$JS src/test-persist.js"
+    run "JS QSQL ($JS, 18 tests)" \
+      "$JS src/test-qsql.js"
+    run "JS store ($JS, 35 tests)" \
+      "$JS src/test-store.js"
     run "JS QJSON ($JS, 25 tests)" \
       "$JS src/test-qjson.js"
     run "JS fossilize ($JS, 9 tests)" \
@@ -89,6 +95,8 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
       "$JS examples/greenhouse/test.js"
     run "JS tutorial ($JS, 27 tests)" \
       "$JS examples/tutorial/test.js"
+    run "JS crypto sentinel ($JS, 30 tests)" \
+      "$JS examples/crypto-sentinel/test.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi

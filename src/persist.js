@@ -17,7 +17,11 @@
 
 function _ser(t) {
   if (t.type === "atom") return { t: "a", n: t.name };
-  if (t.type === "num")  return { t: "n", v: t.value };
+  if (t.type === "num") {
+    var o = { t: "n", v: t.value };
+    if (t.repr) o.r = t.repr;
+    return o;
+  }
   if (t.type === "compound") {
     var a = [];
     for (var i = 0; i < t.args.length; i++) a.push(_ser(t.args[i]));
@@ -28,7 +32,11 @@ function _ser(t) {
 
 function _deser(o) {
   if (o.t === "a") return { type: "atom", name: o.n };
-  if (o.t === "n") return { type: "num", value: o.v };
+  if (o.t === "n") {
+    var t = { type: "num", value: o.v };
+    if (o.r) t.repr = o.r;
+    return t;
+  }
   if (o.t === "c") {
     var a = [];
     for (var i = 0; i < o.a.length; i++) a.push(_deser(o.a[i]));

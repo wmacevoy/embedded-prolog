@@ -31,7 +31,9 @@ def var(name):
 def compound(functor, args):
     return ("compound", functor, tuple(args))
 
-def num(n):
+def num(n, repr=None):
+    if repr:
+        return ("num", n, repr)
     return ("num", n)
 
 def lst(items, tail=None):
@@ -470,6 +472,8 @@ def term_to_str(term):
     if t == "atom":
         return term[1]
     if t == "num":
+        if len(term) > 2 and term[2]:
+            return term[2]
         return str(term[1])
     if t == "var":
         return term[1]
