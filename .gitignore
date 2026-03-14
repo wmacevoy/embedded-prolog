@@ -9,3 +9,4 @@ examples/native-demo/demo
 examples/native-demo/qjson_demo
 examples/native-demo/*.db
 examples/sync-todo/todos.db
+wasm/dist/

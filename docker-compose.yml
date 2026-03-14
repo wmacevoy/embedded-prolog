@@ -21,6 +21,9 @@
 ##
 ## Greenhouse mesh (multi-runtime, browser at http://localhost:3000):
 ##   docker compose -f examples/greenhouse/docker-compose.yml up --build
+##
+## Build SQLite WASM (output in wasm/dist/):
+##   docker compose run --rm wasm-build
 
 services:
 
@@ -93,3 +96,10 @@ services:
     command: node examples/sync-todo/server.js
     ports:
       - "4000:4000"
+
+  # ── WASM build (SQLite compiled to WebAssembly) ────────
+  # Output: wasm/dist/sqlite3.js + sqlite3.wasm
+  wasm-build:
+    build: wasm
+    volumes:
+      - ./wasm/dist:/out
