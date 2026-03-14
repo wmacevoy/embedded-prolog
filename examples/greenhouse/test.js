@@ -692,18 +692,14 @@ describe("End-to-end scenario", () => {
 
 // ── Persistence ─────────────────────────────────────────────
 
-// In-memory mock adapter (no SQLite needed for tests)
+// In-memory mock adapter (semantic interface, no SQLite needed for tests)
 function MockAdapter() { this._rows = {}; }
-MockAdapter.prototype.exec = function() {};
-MockAdapter.prototype.run = function(sql, params) {
-  if (sql.indexOf("INSERT") === 0) this._rows[params[0]] = true;
-  else if (sql.indexOf("DELETE") === 0) delete this._rows[params[0]];
-};
-MockAdapter.prototype.all = function() {
-  var result = [], keys = Object.keys(this._rows);
-  for (var i = 0; i < keys.length; i++) result.push({ term: keys[i] });
-  return result;
-};
+MockAdapter.prototype.setup = function() {};
+MockAdapter.prototype.insert = function(key) { this._rows[key] = true; };
+MockAdapter.prototype.remove = function(key) { delete this._rows[key]; };
+MockAdapter.prototype.all = function() { return Object.keys(this._rows); };
+MockAdapter.prototype.commit = function() {};
+MockAdapter.prototype.close = function() {};
 
 describe("Persistence", function() {
   it("coordinator readings survive restart", function() {

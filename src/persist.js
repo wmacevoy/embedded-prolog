@@ -2,19 +2,19 @@
 // persist.js — One-function database persistence for Y@ Prolog
 //
 // Portable: same constraints as prolog-engine.js (ES5, no deps).
-// The caller provides a sync SQL adapter (e.g. better-sqlite3).
 //
 // Usage:
-//   import { PrologEngine } from './prolog-engine.js';
-//   import { persist } from './persist.js';
-//   var Database = require('better-sqlite3');
+//   persist(engine, sqliteAdapter(db));        // explicit adapter
+//   persist(engine, db);                       // auto-detect better-sqlite3
+//   persist(engine, adapter, null, {stringify: qjson_stringify, parse: qjson_parse});
 //
-//   var engine = new PrologEngine();
-//   persist(engine, new Database('state.db'));
-//   // assert/retract are now durable — facts survive restart
-//
-// Adapter interface (for custom backends):
-//   { exec(sql), run(sql, params), all(sql) → [{term: "..."}] }
+// Adapter interface (6 methods):
+//   setup()       — create table if needed
+//   insert(key)   — upsert fact (ignore duplicate)
+//   remove(key)   — delete fact by key
+//   all()         — return all fact keys as list of strings
+//   commit()      — commit transaction
+//   close()       — release connection
 //
 // If using ephemeral/react, call persist() AFTER createReactiveEngine().
 // Ephemeral scopes become SQL transactions — all mutations inside one
@@ -45,31 +45,35 @@ function _deser(o) {
   return null;
 }
 
-// ── better-sqlite3 auto-wrapper ─────────────────────────────
+// ── Auto-detect better-sqlite3 → semantic adapter ───────────
 
-function _wrapBetterSqlite3(db) {
-  var cache = {};
-  function stmt(sql) {
-    if (!cache[sql]) cache[sql] = db.prepare(sql);
-    return cache[sql];
+function _autoAdapter(db) {
+  if (typeof db.insert === "function" && typeof db.setup === "function") {
+    return db;  // already a semantic adapter
   }
-  return {
-    exec: function(sql) { db.exec(sql); },
-    run:  function(sql, params) { stmt(sql).run.apply(stmt(sql), params); },
-    all:  function(sql) { return stmt(sql).all(); },
-    commit: function() {}  // better-sqlite3 is autocommit
-  };
+  if (typeof db.prepare === "function" && typeof db.exec === "function") {
+    // better-sqlite3 or bun:sqlite — wrap to semantic interface
+    var cache = {};
+    function stmt(sql) {
+      if (!cache[sql]) cache[sql] = db.prepare(sql);
+      return cache[sql];
+    }
+    return {
+      setup:  function() { db.exec("CREATE TABLE IF NOT EXISTS facts (term TEXT PRIMARY KEY)"); },
+      insert: function(key) { stmt("INSERT OR IGNORE INTO facts VALUES (?)").run(key); },
+      remove: function(key) { stmt("DELETE FROM facts WHERE term = ?").run(key); },
+      all:    function() { return stmt("SELECT term FROM facts").all().map(function(r) { return r.term; }); },
+      commit: function() {},
+      close:  function() { db.close(); }
+    };
+  }
+  return db;  // assume it's already an adapter
 }
 
 // ── Main function ───────────────────────────────────────────
 
 function persist(engine, db, predicates, codec) {
-  var adapter;
-  if (typeof db.prepare === "function" && typeof db.exec === "function") {
-    adapter = _wrapBetterSqlite3(db);
-  } else {
-    adapter = db;
-  }
+  var adapter = _autoAdapter(db);
 
   // codec: null = JSON; {stringify, parse} = custom (e.g. QJSON)
   // Parse optimization: try native JSON.parse first, fall back to codec.parse.
@@ -99,11 +103,11 @@ function persist(engine, db, predicates, codec) {
   }
 
   // ── Create table + restore ──────────────────────────────
-  adapter.exec("CREATE TABLE IF NOT EXISTS facts (term TEXT PRIMARY KEY)");
+  adapter.setup();
 
-  var rows = adapter.all("SELECT term FROM facts");
-  for (var i = 0; i < rows.length; i++) {
-    engine.addClause(_deser(_loads(rows[i].term)));
+  var keys = adapter.all();
+  for (var i = 0; i < keys.length; i++) {
+    engine.addClause(_deser(_loads(keys[i])));
   }
 
   // ── Hook assert/1 ──────────────────────────────────────
@@ -112,7 +116,7 @@ function persist(engine, db, predicates, codec) {
   engine.builtins["assert/1"] = function(goal, rest, subst, counter, depth, onSolution) {
     var term = engine.deepWalk(goal.args[0], subst);
     if (_ok(term)) {
-      adapter.run("INSERT OR IGNORE INTO facts VALUES (?)", [_key(term)]);
+      adapter.insert(_key(term));
       _commit();
     }
     origAssert(goal, rest, subst, counter, depth, onSolution);
@@ -124,7 +128,7 @@ function persist(engine, db, predicates, codec) {
   engine.addClause = function(head, body) {
     _origAddClause.call(engine, head, body);
     if ((!body || body.length === 0) && _ok(head)) {
-      adapter.run("INSERT OR IGNORE INTO facts VALUES (?)", [_key(head)]);
+      adapter.insert(_key(head));
       _commit();
     }
   };
@@ -137,7 +141,7 @@ function persist(engine, db, predicates, codec) {
       if (engine.unify(head, ch, new Map()) !== null) {
         engine.clauses.splice(i, 1);
         if (cb.length === 0 && _ok(ch)) {
-          adapter.run("DELETE FROM facts WHERE term = ?", [_key(ch)]);
+          adapter.remove(_key(ch));
           _commit();
         }
         return true;
@@ -167,6 +171,5 @@ function persist(engine, db, predicates, codec) {
 
 if (typeof exports !== "undefined") {
   exports.persist = persist;
-  exports._wrapBetterSqlite3 = _wrapBetterSqlite3;
 }
-export { persist, _wrapBetterSqlite3 };
+export { persist };

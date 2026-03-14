@@ -20,17 +20,14 @@ var passed = 0, failed = 0;
 function MockAdapter() {
   this._rows = {};
 }
-MockAdapter.prototype.exec = function() {};
-MockAdapter.prototype.run = function(sql, params) {
-  if (sql.indexOf("INSERT") === 0) this._rows[params[0]] = true;
-  else if (sql.indexOf("DELETE") === 0) delete this._rows[params[0]];
-};
+MockAdapter.prototype.setup = function() {};
+MockAdapter.prototype.insert = function(key) { this._rows[key] = true; };
+MockAdapter.prototype.remove = function(key) { delete this._rows[key]; };
 MockAdapter.prototype.all = function() {
-  var result = [];
-  var keys = Object.keys(this._rows);
-  for (var i = 0; i < keys.length; i++) result.push({ term: keys[i] });
-  return result;
+  return Object.keys(this._rows);
 };
+MockAdapter.prototype.commit = function() {};
+MockAdapter.prototype.close = function() {};
 
 // ── Harness ─────────────────────────────────────────────────
 
