@@ -144,18 +144,7 @@ Builtins: `path_segments/2` (URL → atom list), `field/3` (JSON object field ex
 
 Exact doubles (most numbers): `lo == hi` → point interval, zero overhead. Non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
 
-Equality: `NOT (a_hi < b_lo OR b_hi < a_lo) AND ((a_lo == a_hi AND b_lo == b_hi) OR a_val == b_val)`. Point intervals resolve via fast REAL comparison (99.999%). String fallback only for the rare non-exact boundary case.
-
-Query pushdown pattern: `WHERE (ballpark) AND ((exact) OR (full_precision))`. Ballpark = indexed REAL interval check (99.999%). Exact = both point intervals, resolve with REAL (99.999% of values). Full_precision = string comparison on value column (~0.001%).
-
-| Op | ballpark | exact (both points) | full_precision |
-|----|----------|---------------------|----------------|
-| `<`  | `a_hi < b_lo` | `a_lo < b_lo` | `a < b` |
-| `<=` | `a_hi <= b_hi` | `a_lo <= b_lo` | `a <= b` |
-| `==` | `NOT (a_hi < b_lo OR b_hi < a_lo)` | `a_lo = b_lo` | `a = b` |
-| `!=` | `a_hi < b_lo OR b_hi < a_lo` | `a_lo != b_lo` | `a != b` |
-| `>=` | `a_lo >= b_lo` | `a_lo >= b_lo` | `a >= b` |
-| `>`  | `a_lo > b_hi` | `a_lo > b_lo` | `a > b` |
+Query pushdown: `a <op> b ≡ (both_exact AND a_lo <op> b_lo) OR (NOT both_exact AND y8_decimal_cmp(a,b) <op> 0)` where `both_exact = (a_lo = a_hi AND b_lo = b_hi)`. Point intervals (99.999%) → fast REAL compare. Non-point → `y8_decimal_cmp` string compare (~0.001%). For `==`, add interval overlap guard: `NOT (a_hi < b_lo OR b_hi < a_lo)` as fast rejection.
 
 **Persist adapter interface** (6 methods):
 ```

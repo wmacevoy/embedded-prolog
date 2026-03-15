@@ -82,57 +82,70 @@ For non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
 
 ## Query pushdown
 
-Every comparison follows the same pattern:
+Every comparison resolves by case split: point intervals use
+fast REAL comparison; non-point intervals use exact string
+comparison via `y8_decimal_cmp`.
 
 ```sql
-WHERE (ballpark)                          -- fast indexed REAL check
-  AND ((exact) OR (full_precision))       -- tiebreak for boundary zone
+a <op> b ≡
+  (a_lo = a_hi AND b_lo = b_hi AND a_lo <op> b_lo)           -- both exact doubles
+  OR (NOT (a_lo = a_hi AND b_lo = b_hi)
+      AND y8_decimal_cmp(a, b) <op> 0)                        -- at least one non-exact
 ```
 
-- **ballpark** — interval-only check on `_lo`/`_hi` columns.  Uses
-  index, eliminates 99.999% of rows.  May have false positives in
-  the boundary zone (intervals overlap).
-- **exact** — both operands are point intervals (`lo = hi`).  If so,
-  the REAL values ARE the exact values — resolve directly.  This is
-  the 99.999% fast path for values that are exact IEEE doubles.
-- **full_precision** — string comparison on the `arg` column.  Only
-  fires for the ~0.001% of values where the double is not exact
-  (e.g., `0.1M`).
+- **Point intervals** (`lo = hi`): the REAL values ARE the exact
+  values.  Compare directly.  This is 99.999% of values.
+- **Non-point intervals**: at least one value is not exactly
+  representable.  Fall back to `y8_decimal_cmp` on the value
+  strings.  This is ~0.001% of values.
 
-### Example: `a > b`
+No separate "ballpark" phase — the point-interval check IS the
+fast path.  SQLite compares two REALs inline; the string branch
+is never reached for exact doubles.
+
+### Example: `a < b`
 
 ```sql
-WHERE (a_lo > b_hi)                                    -- ballpark
-  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo > b_lo)   -- exact
-       OR a > b)                                        -- full_precision
+WHERE (a_lo = a_hi AND b_lo = b_hi AND a_lo < b_lo)
+   OR (NOT (a_lo = a_hi AND b_lo = b_hi)
+       AND y8_decimal_cmp(a, b) < 0)
 ```
 
-For exact doubles: `a_lo = a_hi` and `b_lo = b_hi`, so the exact
-branch resolves it with two REAL comparisons.  No string involved.
+For exact doubles (99.999%): first branch fires, two REAL
+comparisons.  For `0.1M` vs `0.10000000000000001M`: second
+branch, string comparison.
+
+### Equality with fast rejection
+
+For `==`, add an interval overlap guard to reject most
+non-matching rows before the point/string check:
+
+```sql
+WHERE NOT (a_hi < b_lo OR b_hi < a_lo)                       -- intervals overlap (indexed)
+  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo = b_lo)
+       OR (NOT (a_lo = a_hi AND b_lo = b_hi)
+           AND y8_decimal_cmp(a, b) = 0))
+```
+
+The overlap check uses indexed REAL columns to eliminate
+99.999% of non-matching rows before touching strings.
 
 ### All comparison operators
 
-| Op | ballpark | exact (both points) | full_precision |
-|----|----------|---------------------|----------------|
-| `a < b`  | `a_hi < b_lo` | `a_lo < b_lo` | `a < b` |
-| `a <= b` | `a_hi <= b_hi` | `a_lo <= b_lo` | `a <= b` |
-| `a == b` | `NOT (a_hi < b_lo OR b_hi < a_lo)` | `a_lo = b_lo` | `a = b` |
-| `a != b` | `a_hi < b_lo OR b_hi < a_lo` | `a_lo != b_lo` | `a != b` |
-| `a >= b` | `a_lo >= b_lo` | `a_lo >= b_lo` | `a >= b` |
-| `a > b`  | `a_lo > b_hi` | `a_lo > b_lo` | `a > b` |
+All follow the same form.  `both_exact` = `a_lo = a_hi AND b_lo = b_hi`.
 
-General form:
+| Op | both_exact branch | non-exact branch |
+|----|-------------------|------------------|
+| `a < b`  | `a_lo < b_lo`  | `y8_decimal_cmp(a, b) < 0`  |
+| `a <= b` | `a_lo <= b_lo` | `y8_decimal_cmp(a, b) <= 0` |
+| `a == b` | `a_lo = b_lo`  | `y8_decimal_cmp(a, b) = 0`  |
+| `a != b` | `a_lo != b_lo` | `y8_decimal_cmp(a, b) != 0` |
+| `a >= b` | `a_lo >= b_lo` | `y8_decimal_cmp(a, b) >= 0` |
+| `a > b`  | `a_lo > b_lo`  | `y8_decimal_cmp(a, b) > 0`  |
 
-```sql
-WHERE (ballpark)
-  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo <op> b_lo)
-       OR a <op> b)
-```
-
-The string comparison (`a <op> b`) uses TEXT ordering on the
-value column.  For numeric strings this requires a custom collation
-or `CAST(a AS REAL)` — but it's only hit ~0.001% of the time, so
-performance is irrelevant.  Correctness matters; speed doesn't.
+`y8_decimal_cmp` compares decimal strings numerically (not
+lexicographically).  Implemented in C (`y8_qjson.c`), available
+as a SQLite custom function via `sqlite3_create_function`.
 
 ### Range: `price >= 60000M AND price <= 70000M`
 
