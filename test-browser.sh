@@ -64,12 +64,16 @@ echo "Phase 2: HTTP serve + fetch"
 if command -v python3 >/dev/null 2>&1; then
   python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 &
   SERVER_PID=$!
-  sleep 1
+  # Wait for server to be ready (retry up to 5s)
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    curl -s -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null && break
+    sleep 0.5
+  done
 
   for entry in "${DEMOS[@]}"; do
     IFS=: read -r file title engine <<< "$entry"
     URL="http://127.0.0.1:$PORT/$file"
-    STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+    STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo "000")
     if [ "$STATUS" = "200" ]; then
       # Check response body contains engine
       BODY=$(curl -s "$URL" 2>/dev/null || true)
