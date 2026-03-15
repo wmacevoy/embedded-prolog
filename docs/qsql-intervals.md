@@ -88,54 +88,45 @@ an optimization — they can prove strict inequality but can
 to the same `[lo, hi]` (same double, same rounding direction).
 
 Principle:
-- Intervals can **prove** `a < b` when `a_hi < b_lo` (fast acceptance)
-- Intervals can **reject** `a == b` when `a_hi < b_lo OR b_hi < a_lo` (fast rejection)
-- Intervals can **never prove** `a == b` — always need `y8_decimal_cmp`
+- Intervals can **accept** `a < b` when `a_hi < b_lo` (fast, indexed)
+- Intervals can **reject** `a < b` when `a_lo >= b_hi` (fast, indexed)
+- Intervals can **never prove** equality — always need `y8_decimal_cmp`
+- `y8_decimal_cmp` only runs in the overlap zone (~0.001% of rows)
 
 ### General form
 
-```sql
-a <op> b ≡
-  (interval_sufficient)                           -- indexed REAL, fast
-  OR y8_decimal_cmp(a, b) <op> 0                  -- authoritative, always correct
+```
+(interval_accept) OR ((interval_not_reject) AND cmp(a_str, b_str) <op> 0)
 ```
 
-For `==` (no interval-sufficient exists, use rejection):
-```sql
-a == b ≡
-  NOT (a_hi < b_lo OR b_hi < a_lo)               -- fast rejection (indexed)
-  AND y8_decimal_cmp(a, b) = 0                    -- authoritative
-```
+For `<`:  accept = `a_hi < b_lo`,  reject = `a_lo >= b_hi`
+For `==`: no accept possible, reject = `a_hi < b_lo OR b_hi < a_lo`
 
 ### All comparison operators
 
-| Op | interval sufficient (fast) | authoritative (always correct) |
-|----|---------------------------|-------------------------------|
-| `a < b`  | `a_hi < b_lo` | `y8_decimal_cmp(a, b) < 0`  |
-| `a <= b` | `a_hi <= b_lo` | `y8_decimal_cmp(a, b) <= 0` |
-| `a == b` | — (use rejection: `NOT (a_hi < b_lo OR b_hi < a_lo)`) | `y8_decimal_cmp(a, b) = 0` |
-| `a != b` | `a_hi < b_lo OR b_hi < a_lo` | `y8_decimal_cmp(a, b) != 0` |
-| `a >= b` | `a_lo >= b_hi` | `y8_decimal_cmp(a, b) >= 0` |
-| `a > b`  | `a_lo > b_hi` | `y8_decimal_cmp(a, b) > 0`  |
+`cmp` = `y8_decimal_cmp(a_str, b_str)`.
 
-The interval column handles 99.999% of comparisons via indexed
-REAL.  `y8_decimal_cmp` fires for the ~0.001% boundary zone
-(overlapping intervals).  For `==`, the overlap rejection
-eliminates most non-matches before calling `y8_decimal_cmp`.
+| Op | Formula |
+|----|---------|
+| `a < b`  | `(a_hi < b_lo) OR ((a_lo < b_hi) AND cmp < 0)` |
+| `a <= b` | `(a_hi <= b_lo) OR ((a_lo <= b_hi) AND cmp <= 0)` |
+| `a > b`  | `(a_lo > b_hi) OR ((a_hi > b_lo) AND cmp > 0)` |
+| `a >= b` | `(a_lo >= b_hi) OR ((a_hi >= b_lo) AND cmp >= 0)` |
+| `a == b` | `(a_hi >= b_lo AND b_hi >= a_lo) AND cmp == 0` |
+| `a != b` | `(a_hi < b_lo OR b_hi < a_lo) OR cmp != 0` |
 
-### Example: `a < b`
+For `<`, `<=`, `>`, `>=`: the first branch is fast acceptance
+(indexed REAL, proves the result).  The guard before `cmp` is
+fast rejection (also indexed REAL, avoids calling `cmp` when
+the intervals already disprove the result).  `cmp` only runs
+in the overlap zone.
 
-```sql
-WHERE (a_hi < b_lo)                              -- intervals prove it
-   OR y8_decimal_cmp(a, b) < 0                   -- exact comparison
-```
+For `==`: the interval overlap check is fast rejection only
+(eliminates 99.999% of non-matching rows).  `cmp` is always
+the final authority.
 
-### Example: `a == b`
-
-```sql
-WHERE NOT (a_hi < b_lo OR b_hi < a_lo)           -- intervals can't reject it
-  AND y8_decimal_cmp(a, b) = 0                    -- exact comparison confirms it
-```
+For `!=`: the interval non-overlap check is fast acceptance.
+If intervals overlap, `cmp` decides.
 
 `y8_decimal_cmp` compares decimal strings numerically (not
 lexicographically).  Implemented in C (`y8_qjson.c`), available
