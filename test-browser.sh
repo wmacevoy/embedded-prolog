@@ -62,7 +62,7 @@ echo ""
 echo "Phase 2: HTTP serve + fetch"
 
 if command -v python3 >/dev/null 2>&1; then
-  python3 -m http.server $PORT --bind 127.0.0.1 &>/dev/null &
+  python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 &
   SERVER_PID=$!
   sleep 1
 
@@ -72,8 +72,8 @@ if command -v python3 >/dev/null 2>&1; then
     STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
     if [ "$STATUS" = "200" ]; then
       # Check response body contains engine
-      BODY=$(curl -s "$URL" 2>/dev/null)
-      if echo "$BODY" | grep -q "$engine"; then
+      BODY=$(curl -s "$URL" 2>/dev/null || true)
+      if printf '%s' "$BODY" | grep -q "$engine" 2>/dev/null; then
         echo "  ✓ GET $file → 200 (contains $engine)"
         PASS=$((PASS + 1))
       else
@@ -86,7 +86,8 @@ if command -v python3 >/dev/null 2>&1; then
     fi
   done
 
-  kill $SERVER_PID 2>/dev/null
+  kill $SERVER_PID 2>/dev/null || true
+  wait $SERVER_PID 2>/dev/null || true
 else
   echo "  (skipping — python3 not found)"
 fi
@@ -132,7 +133,7 @@ echo ""
 echo "Phase 4: Headless browser rendering"
 
 if command -v npx >/dev/null 2>&1 && npx playwright --version >/dev/null 2>&1; then
-  python3 -m http.server $PORT --bind 127.0.0.1 &>/dev/null &
+  python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 &
   SERVER_PID=$!
   sleep 1
 
@@ -166,7 +167,8 @@ if command -v npx >/dev/null 2>&1 && npx playwright --version >/dev/null 2>&1; t
     })();
   " 2>/dev/null && PASS=$((PASS + 4)) || FAIL=$((FAIL + 1))
 
-  kill $SERVER_PID 2>/dev/null
+  kill $SERVER_PID 2>/dev/null || true
+  wait $SERVER_PID 2>/dev/null || true
 else
   echo "  (skipping — playwright not installed)"
   echo "  install: npx playwright install chromium"
