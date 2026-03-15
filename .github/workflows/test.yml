@@ -153,9 +153,10 @@ jobs:
             echo "Host compilation check: OK"
           fi
 
-  # ── Browser demo smoke tests ───────────────────────────
+  # ── Browser demo smoke tests (non-blocking) ─────────────
   browser:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

@@ -138,7 +138,7 @@ fi
 echo ""
 echo "Phase 4: Headless browser rendering"
 
-if command -v npx >/dev/null 2>&1 && npx playwright --version >/dev/null 2>&1; then
+if node -e "require('playwright')" 2>/dev/null; then
   python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 &
   SERVER_PID=$!
   sleep 1
