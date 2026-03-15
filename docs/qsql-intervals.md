@@ -82,66 +82,60 @@ For non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
 
 ## Query pushdown
 
-Every comparison resolves by case split: point intervals use
-fast REAL comparison; non-point intervals use exact string
-comparison via `y8_decimal_cmp`.
+`y8_decimal_cmp(a, b)` is always the authority.  Intervals are
+an optimization — they can prove strict inequality but can
+**never** prove equality.  Two different exact values can project
+to the same `[lo, hi]` (same double, same rounding direction).
+
+Principle:
+- Intervals can **prove** `a < b` when `a_hi < b_lo` (fast acceptance)
+- Intervals can **reject** `a == b` when `a_hi < b_lo OR b_hi < a_lo` (fast rejection)
+- Intervals can **never prove** `a == b` — always need `y8_decimal_cmp`
+
+### General form
 
 ```sql
 a <op> b ≡
-  (a_lo = a_hi AND b_lo = b_hi AND a_lo <op> b_lo)           -- both exact doubles
-  OR (NOT (a_lo = a_hi AND b_lo = b_hi)
-      AND y8_decimal_cmp(a, b) <op> 0)                        -- at least one non-exact
+  (interval_sufficient)                           -- indexed REAL, fast
+  OR y8_decimal_cmp(a, b) <op> 0                  -- authoritative, always correct
 ```
 
-- **Point intervals** (`lo = hi`): the REAL values ARE the exact
-  values.  Compare directly.  This is 99.999% of values.
-- **Non-point intervals**: at least one value is not exactly
-  representable.  Fall back to `y8_decimal_cmp` on the value
-  strings.  This is ~0.001% of values.
+For `==` (no interval-sufficient exists, use rejection):
+```sql
+a == b ≡
+  NOT (a_hi < b_lo OR b_hi < a_lo)               -- fast rejection (indexed)
+  AND y8_decimal_cmp(a, b) = 0                    -- authoritative
+```
 
-No separate "ballpark" phase — the point-interval check IS the
-fast path.  SQLite compares two REALs inline; the string branch
-is never reached for exact doubles.
+### All comparison operators
+
+| Op | interval sufficient (fast) | authoritative (always correct) |
+|----|---------------------------|-------------------------------|
+| `a < b`  | `a_hi < b_lo` | `y8_decimal_cmp(a, b) < 0`  |
+| `a <= b` | `a_hi <= b_lo` | `y8_decimal_cmp(a, b) <= 0` |
+| `a == b` | — (use rejection: `NOT (a_hi < b_lo OR b_hi < a_lo)`) | `y8_decimal_cmp(a, b) = 0` |
+| `a != b` | `a_hi < b_lo OR b_hi < a_lo` | `y8_decimal_cmp(a, b) != 0` |
+| `a >= b` | `a_lo >= b_hi` | `y8_decimal_cmp(a, b) >= 0` |
+| `a > b`  | `a_lo > b_hi` | `y8_decimal_cmp(a, b) > 0`  |
+
+The interval column handles 99.999% of comparisons via indexed
+REAL.  `y8_decimal_cmp` fires for the ~0.001% boundary zone
+(overlapping intervals).  For `==`, the overlap rejection
+eliminates most non-matches before calling `y8_decimal_cmp`.
 
 ### Example: `a < b`
 
 ```sql
-WHERE (a_lo = a_hi AND b_lo = b_hi AND a_lo < b_lo)
-   OR (NOT (a_lo = a_hi AND b_lo = b_hi)
-       AND y8_decimal_cmp(a, b) < 0)
+WHERE (a_hi < b_lo)                              -- intervals prove it
+   OR y8_decimal_cmp(a, b) < 0                   -- exact comparison
 ```
 
-For exact doubles (99.999%): first branch fires, two REAL
-comparisons.  For `0.1M` vs `0.10000000000000001M`: second
-branch, string comparison.
-
-### Equality with fast rejection
-
-For `==`, add an interval overlap guard to reject most
-non-matching rows before the point/string check:
+### Example: `a == b`
 
 ```sql
-WHERE NOT (a_hi < b_lo OR b_hi < a_lo)                       -- intervals overlap (indexed)
-  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo = b_lo)
-       OR (NOT (a_lo = a_hi AND b_lo = b_hi)
-           AND y8_decimal_cmp(a, b) = 0))
+WHERE NOT (a_hi < b_lo OR b_hi < a_lo)           -- intervals can't reject it
+  AND y8_decimal_cmp(a, b) = 0                    -- exact comparison confirms it
 ```
-
-The overlap check uses indexed REAL columns to eliminate
-99.999% of non-matching rows before touching strings.
-
-### All comparison operators
-
-All follow the same form.  `both_exact` = `a_lo = a_hi AND b_lo = b_hi`.
-
-| Op | both_exact branch | non-exact branch |
-|----|-------------------|------------------|
-| `a < b`  | `a_lo < b_lo`  | `y8_decimal_cmp(a, b) < 0`  |
-| `a <= b` | `a_lo <= b_lo` | `y8_decimal_cmp(a, b) <= 0` |
-| `a == b` | `a_lo = b_lo`  | `y8_decimal_cmp(a, b) = 0`  |
-| `a != b` | `a_lo != b_lo` | `y8_decimal_cmp(a, b) != 0` |
-| `a >= b` | `a_lo >= b_lo` | `y8_decimal_cmp(a, b) >= 0` |
-| `a > b`  | `a_lo > b_lo`  | `y8_decimal_cmp(a, b) > 0`  |
 
 `y8_decimal_cmp` compares decimal strings numerically (not
 lexicographically).  Implemented in C (`y8_qjson.c`), available

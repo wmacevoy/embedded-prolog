@@ -144,7 +144,7 @@ Builtins: `path_segments/2` (URL → atom list), `field/3` (JSON object field ex
 
 Exact doubles (most numbers): `lo == hi` → point interval, zero overhead. Non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
 
-Query pushdown: `a <op> b ≡ (both_exact AND a_lo <op> b_lo) OR (NOT both_exact AND y8_decimal_cmp(a,b) <op> 0)` where `both_exact = (a_lo = a_hi AND b_lo = b_hi)`. Point intervals (99.999%) → fast REAL compare. Non-point → `y8_decimal_cmp` string compare (~0.001%). For `==`, add interval overlap guard: `NOT (a_hi < b_lo OR b_hi < a_lo)` as fast rejection.
+Query pushdown: `y8_decimal_cmp` is always authoritative. Intervals are an optimization — they can prove strict inequality (`a_hi < b_lo` → `a < b`) but can **never** prove equality (different exact values can share the same interval). General form: `(interval_sufficient) OR y8_decimal_cmp(a,b) <op> 0`. For `==`: `NOT (a_hi < b_lo OR b_hi < a_lo) AND y8_decimal_cmp(a,b) = 0`.
 
 **Persist adapter interface** (6 methods):
 ```
