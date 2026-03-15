@@ -7,12 +7,26 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fenv.h>
 #include <math.h>
 #include <float.h>
 #include "y8_qjson.h"
 
+#ifdef Y8_USE_LIBBF
+#include "libbf.h"
+static bf_context_t _y8_bf_ctx;
+static int _y8_bf_init = 0;
+static void *_y8_bf_realloc(void *opaque, void *ptr, size_t size) {
+    (void)opaque;
+    if (size == 0) { free(ptr); return NULL; }
+    return realloc(ptr, size);
+}
+static void _y8_bf_ensure(void) {
+    if (!_y8_bf_init) { bf_context_init(&_y8_bf_ctx, _y8_bf_realloc, NULL); _y8_bf_init = 1; }
+}
+#else
+#include <fenv.h>
 #pragma STDC FENV_ACCESS ON
+#endif
 
 /* ── Arena ───────────────────────────────────────────────── */
 
@@ -547,6 +561,25 @@ y8_val *y8_obj_get(const y8_val *v, const char *key) {
 
 /* ── Interval projection ────────────────────────────────── */
 
+#ifdef Y8_USE_LIBBF
+
+void y8_project(const char *raw, int len, double *lo, double *hi) {
+    char buf[320];
+    if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+    memcpy(buf, raw, len);
+    buf[len] = '\0';
+
+    _y8_bf_ensure();
+    bf_t val;
+    bf_init(&_y8_bf_ctx, &val);
+    bf_atof(&val, buf, NULL, 10, BF_PREC_INF, BF_RNDN);
+    bf_get_float64(&val, lo, BF_RNDD);
+    bf_get_float64(&val, hi, BF_RNDU);
+    bf_delete(&val);
+}
+
+#else /* fesetround + strtod fallback */
+
 void y8_project(const char *raw, int len, double *lo, double *hi) {
     char buf[320];
     if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
@@ -565,6 +598,8 @@ void y8_project(const char *raw, int len, double *lo, double *hi) {
     *lo = vlo;
     *hi = vhi;
 }
+
+#endif
 
 void y8_val_project(const y8_val *v, double *lo, double *hi) {
     if (!v) { *lo = *hi = 0; return; }
@@ -587,6 +622,29 @@ void y8_val_project(const y8_val *v, double *lo, double *hi) {
 }
 
 /* ── Decimal string comparison ──────────────────────────── */
+
+#ifdef Y8_USE_LIBBF
+
+int y8_decimal_cmp(const char *a, int a_len, const char *b, int b_len) {
+    char ab[320], bb[320];
+    if (a_len >= (int)sizeof(ab)) a_len = (int)sizeof(ab) - 1;
+    if (b_len >= (int)sizeof(bb)) b_len = (int)sizeof(bb) - 1;
+    memcpy(ab, a, a_len); ab[a_len] = '\0';
+    memcpy(bb, b, b_len); bb[b_len] = '\0';
+
+    _y8_bf_ensure();
+    bf_t av, bv;
+    bf_init(&_y8_bf_ctx, &av);
+    bf_init(&_y8_bf_ctx, &bv);
+    bf_atof(&av, ab, NULL, 10, BF_PREC_INF, BF_RNDN);
+    bf_atof(&bv, bb, NULL, 10, BF_PREC_INF, BF_RNDN);
+    int r = bf_cmp(&av, &bv);
+    bf_delete(&av);
+    bf_delete(&bv);
+    return r < 0 ? -1 : r > 0 ? 1 : 0;
+}
+
+#else /* string-based fallback */
 
 static int abs_decimal_cmp(const char *a, int al, const char *b, int bl) {
     /* Find decimal points */
@@ -642,6 +700,8 @@ int y8_decimal_cmp(const char *a, int a_len, const char *b, int b_len) {
     );
     return a_neg ? -cmp : cmp;
 }
+
+#endif
 
 /* ── Interval comparison ────────────────────────────────── */
 

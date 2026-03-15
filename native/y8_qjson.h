@@ -93,8 +93,9 @@ y8_val *y8_obj_get(const y8_val *v, const char *key);
    Non-exact:     nextafter(lo, +inf) == hi (1-ULP bracket).
    Overflow:      lo = DBL_MAX, hi = +inf  (or symmetric for negative).
 
-   Uses fesetround() + strtod() for directed rounding.
-   Canonical implementation — JS/Python are polyfills for this. */
+   With -DY8_USE_LIBBF: uses libbf (from QuickJS) for exact
+   directed rounding.  Without: uses fesetround() + strtod().
+   Both produce identical results. */
 void y8_project(const char *raw, int len, double *lo, double *hi);
 
 /* Project a parsed y8_val to its interval.
@@ -105,7 +106,8 @@ void y8_val_project(const y8_val *v, double *lo, double *hi);
 
 /* Compare two decimal strings numerically.
    Returns -1 (a < b), 0 (a == b), 1 (a > b).
-   Handles sign, leading zeros, different lengths. No scientific notation. */
+   With -DY8_USE_LIBBF: exact arbitrary-precision comparison.
+   Without: string-based decimal comparison (no scientific notation). */
 int y8_decimal_cmp(const char *a, int a_len, const char *b, int b_len);
 
 /* Compare two projected values.  Returns -1, 0, or 1.
