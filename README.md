@@ -1,4 +1,4 @@
-# Y@ — Wyatt Ephemeral Reactive Prolog
+# y8 — Wyatt Ephemeral Reactive Prolog
 
 [![test](https://github.com/wmacevoy/wyatt/actions/workflows/test.yml/badge.svg)](https://github.com/wmacevoy/wyatt/actions/workflows/test.yml)
 
@@ -226,7 +226,7 @@ The pattern across all of these: **the rules are the product,
 not the code.**  Prolog makes the rules auditable, testable, and
 modifiable by domain experts (clinicians, lawyers, game designers).
 Everything else — encryption, reactivity, persistence, sync — is
-infrastructure that Y@ handles so the rules can be the focus.
+infrastructure that y8 handles so the rules can be the focus.
 
 ## Project layout
 
@@ -253,8 +253,8 @@ src/
   fossilize.js / .py      fossilize (global) + mineralize (selective)
 
 native/
-  wyatt.h / wyatt.c       Embeddable C API (QuickJS + SQLite)
-  qjson.h / qjson.c       Native QJSON (arena, 3.5M msg/sec)
+  y8.h / y8.c             Embeddable C API (QuickJS + SQLite)
+  y8_qjson.h / y8_qjson.c QJSON parser + interval projection (arena, 3.5M msg/sec)
   prolog_core.h / .c      32-bit tagged terms + unification
 
 wasm/
@@ -324,10 +324,10 @@ db = persist(engine, "state.db")
 ### With typed storage (QSQL)
 
 ```javascript
-// Per-predicate tables with typed columns
+// Per-predicate tables with interval arithmetic
 // price(btc, 67432.50M, 1710000000N) →
-//   table "q$price$3": _key TEXT, arg0 TEXT, arg1 REAL, arg2 INTEGER
-//   SQLite can index and range-scan individual arguments
+//   table "q$price$3": _key TEXT, arg0 TEXT, arg1 TEXT + arg1_lo/hi REAL, ...
+//   Exact doubles: lo == hi (point interval).  1-ULP bracket for non-exact.
 persist(engine, qsqlAdapter(db));
 ```
 

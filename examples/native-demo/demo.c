@@ -1,5 +1,5 @@
 /* ============================================================
- * demo.c — Y@ in 30 lines of C
+ * demo.c — y8 in 30 lines of C
  *
  * A greenhouse sensor node: load policy rules, process readings,
  * query decisions.  Facts persist to SQLite.  After fossilize,

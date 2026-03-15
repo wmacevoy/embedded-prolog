@@ -7,7 +7,7 @@
 
 import { PrologEngine } from './prolog-engine.js';
 import { persist } from './persist.js';
-import { qsqlAdapter, _qsql_tableName, _qsql_argVal, _qsql_argInterval, _qsql_safeName, _nextUp, _nextDown } from './qsql.js';
+import { qsqlAdapter, _qsql_tableName, _qsql_argVal, _qsql_argInterval, _qsql_safeName, _nextUp, _nextDown, _sciToPlain, _decCmp, _roundingDir } from './qsql.js';
 
 var atom = PrologEngine.atom;
 var compound = PrologEngine.compound;
@@ -211,41 +211,110 @@ test("nextUp/nextDown are inverse", function() {
   assert(_nextUp(_nextDown(x)) === x, "nextUp(nextDown(x)) should be x");
 });
 
+// ── Decimal comparison tests ─────────────────────────────────
+
+test("decCmp equal", function() {
+  assert(_decCmp("42", "42") === 0);
+  assert(_decCmp("42.0", "42") === 0);
+  assert(_decCmp("042", "42") === 0);
+  assert(_decCmp("67432.50", "67432.5") === 0);
+});
+
+test("decCmp less/greater", function() {
+  assert(_decCmp("41", "42") === -1);
+  assert(_decCmp("43", "42") === 1);
+  assert(_decCmp("0.1", "0.2") === -1);
+  assert(_decCmp("0.100000000000000005551", "0.1") === 1, "double 0.1 > exact 0.1");
+});
+
+test("roundingDir exact doubles", function() {
+  assert(_roundingDir(42, "42") === 0, "42 is exact");
+  assert(_roundingDir(0.5, "0.5") === 0, "0.5 is exact");
+  assert(_roundingDir(67432.5, "67432.50") === 0, "67432.50 is exact");
+  assert(_roundingDir(1710000000, "1710000000") === 0, "1710000000 is exact");
+});
+
+test("roundingDir inexact doubles", function() {
+  // 0.1 rounds UP in IEEE 754 (double > exact)
+  assert(_roundingDir(0.1, "0.1") === 1, "0.1 rounds up");
+  // 0.3 rounds DOWN (double < exact 0.3)
+  assert(_roundingDir(0.3, "0.3") === -1, "0.3 rounds down");
+});
+
+test("sciToPlain", function() {
+  assert(_sciToPlain("1.5e+3") === "1500", "1.5e+3");
+  assert(_sciToPlain("1.23e-4") === "0.000123", "1.23e-4");
+  assert(_sciToPlain("42") === "42", "plain passthrough");
+  assert(_sciToPlain("1e+21") === "1000000000000000000000", "1e+21");
+});
+
+test("roundingDir extreme values (language-agnostic)", function() {
+  // Overflow: Infinity > any finite value
+  assert(_roundingDir(Infinity, "2e308") === 1, "Infinity > finite");
+  assert(_roundingDir(-Infinity, "-2e308") === -1, "-Infinity < finite");
+  // Underflow to zero: 0 < positive exact
+  assert(_roundingDir(0, "5e-325") === -1, "0 < positive tiny");
+  assert(_roundingDir(0, "-5e-325") === 1, "0 > negative tiny");
+  assert(_roundingDir(0, "0") === 0, "0 == 0");
+  // Very large (>= 1e21): toPrecision gives scientific notation, _sciToPlain handles it
+  // 1e21 = 5^21 * 2^21, 5^21 < 2^53 → exactly representable
+  assert(_roundingDir(1e21, "1000000000000000000000") === 0, "1e21 is exact");
+  // 1e25 is NOT exact (5^25 > 2^53) → double rounds up
+  assert(_roundingDir(1e25, "10000000000000000000000000") === 1, "1e25 rounds up");
+  // Very small (< 1e-6): scientific notation in toPrecision
+  // 2^-20 = 0.00000095367431640625 (exact, negative power of 2)
+  assert(_roundingDir(Math.pow(2, -20), "0.00000095367431640625") === 0, "2^-20 is exact");
+  // 1e-10 is NOT exact (no negative power of 10 is) → rounds up
+  assert(_roundingDir(1e-10, "0.0000000001") === 1, "1e-10 rounds up");
+});
+
+// ── Interval tests (3-element: [val, lo, hi]) ───────────────
+
 test("argInterval atom", function() {
   var iv = _qsql_argInterval({ t: "a", n: "btc" });
+  assert(iv.length === 3, "3 elements");
   assert(iv[0] === "btc");
-  assert(iv[1] === null && iv[2] === null && iv[3] === null);
+  assert(iv[1] === null && iv[2] === null);
 });
 
 test("argInterval plain number", function() {
   var iv = _qsql_argInterval({ t: "n", v: 42 });
-  assert(iv[0] === 42);
-  assert(iv[1] === 42 && iv[2] === 42);
-  assert(iv[3] === null, "plain number has no x");
+  assert(iv.length === 3, "3 elements");
+  assert(iv[0] === "42", "val is string");
+  assert(iv[1] === 42 && iv[2] === 42, "point interval");
 });
 
-test("argInterval BigDecimal", function() {
+test("argInterval exact BigDecimal → point", function() {
+  // 67432.50 is exactly representable as IEEE 754 double
   var iv = _qsql_argInterval({ t: "n", v: 67432.5, r: "67432.50M" });
-  assert(iv[0] === 67432.5, "val");
-  assert(iv[1] < 67432.5, "lo < val");
-  assert(iv[2] > 67432.5, "hi > val");
-  assert(iv[3] === "67432.50", "x = raw digits");
+  assert(iv[0] === "67432.50", "val = raw digits");
+  assert(iv[1] === 67432.5, "lo = exact");
+  assert(iv[2] === 67432.5, "hi = exact");
 });
 
-test("argInterval BigInt", function() {
+test("argInterval exact BigInt → point", function() {
+  // 42 is exactly representable
   var iv = _qsql_argInterval({ t: "n", v: 42, r: "42N" });
-  assert(iv[0] === 42, "val");
-  assert(iv[1] < 42, "lo < val");
-  assert(iv[2] > 42, "hi > val");
-  assert(iv[3] === "42", "x = raw digits");
+  assert(iv[0] === "42", "val = raw digits");
+  assert(iv[1] === 42, "lo = exact");
+  assert(iv[2] === 42, "hi = exact");
+});
+
+test("argInterval inexact BigDecimal → 1-ULP bracket", function() {
+  // 0.1 is NOT exact in IEEE 754 — double rounds UP
+  var iv = _qsql_argInterval({ t: "n", v: 0.1, r: "0.1M" });
+  assert(iv[0] === "0.1", "val = raw digits");
+  assert(iv[1] < 0.1, "lo < double (nextDown)");
+  assert(iv[2] === 0.1, "hi = double (since v > exact)");
+  assert(iv[2] - iv[1] > 0, "interval has width");
 });
 
 test("argInterval brackets exact value", function() {
-  // 0.1 is NOT exact in IEEE 754
-  var iv = _qsql_argInterval({ t: "n", v: 0.1, r: "0.1M" });
-  assert(iv[1] <= 0.1, "lo <= 0.1 (the double approx)");
-  assert(iv[2] >= 0.1, "hi >= 0.1");
-  assert(iv[3] === "0.1", "x preserves exact string");
+  // 0.3 rounds DOWN — double < exact 0.3
+  var iv = _qsql_argInterval({ t: "n", v: 0.3, r: "0.3M" });
+  assert(iv[0] === "0.3", "val = raw digits");
+  assert(iv[1] === 0.3, "lo = double (since v < exact)");
+  assert(iv[2] > 0.3, "hi > double (nextUp)");
 });
 
 // ── Integration tests: through persist ──────────────────────
@@ -388,14 +457,13 @@ test("typed column storage", function() {
   assert(keys.length === 1, "expected 1 row");
   var row = table.rows[keys[0]];
   assert(row.arg0 === "aapl", "arg0 should be 'aapl', got: " + row.arg0);
-  assert(row.arg1 === 187, "arg1 should be 187, got: " + row.arg1);
-  // Plain number: lo == hi, x == null
+  assert(row.arg1 === "187", "arg1 should be '187' (string), got: " + row.arg1);
+  // Plain number: lo == hi (point interval)
   assert(row.arg1_lo === 187, "arg1_lo should be 187");
   assert(row.arg1_hi === 187, "arg1_hi should be 187");
-  assert(row.arg1_x === null || row.arg1_x === undefined, "arg1_x should be null for plain num");
 });
 
-test("BigDecimal interval stored", function() {
+test("exact BigDecimal → point interval stored", function() {
   var db = new MockDB();
   var e = new PrologEngine();
   persist(e, qsqlAdapter(db));
@@ -404,13 +472,12 @@ test("BigDecimal interval stored", function() {
   var table = db._tables["q$price$2"];
   var keys = Object.keys(table.rows);
   var row = table.rows[keys[0]];
-  assert(row.arg1 === 67432.5, "arg1 primary value");
-  assert(row.arg1_lo < 67432.5, "arg1_lo < val");
-  assert(row.arg1_hi > 67432.5, "arg1_hi > val");
-  assert(row.arg1_x === "67432.50", "arg1_x = exact digits");
+  assert(row.arg1 === "67432.50", "arg1 = value string");
+  assert(row.arg1_lo === 67432.5, "arg1_lo = exact (point)");
+  assert(row.arg1_hi === 67432.5, "arg1_hi = exact (point)");
 });
 
-test("BigInt interval stored", function() {
+test("exact BigInt → point interval stored", function() {
   var db = new MockDB();
   var e = new PrologEngine();
   persist(e, qsqlAdapter(db));
@@ -419,10 +486,23 @@ test("BigInt interval stored", function() {
   var table = db._tables["q$ts$1"];
   var keys = Object.keys(table.rows);
   var row = table.rows[keys[0]];
-  assert(row.arg0 === 1710000000, "primary value");
-  assert(typeof row.arg0_lo === "number", "lo is number");
-  assert(typeof row.arg0_hi === "number", "hi is number");
-  assert(row.arg0_x === "1710000000", "x = exact digits");
+  assert(row.arg0 === "1710000000", "value string");
+  assert(row.arg0_lo === 1710000000, "lo = exact (point)");
+  assert(row.arg0_hi === 1710000000, "hi = exact (point)");
+});
+
+test("inexact BigDecimal → 1-ULP interval stored", function() {
+  var db = new MockDB();
+  var e = new PrologEngine();
+  persist(e, qsqlAdapter(db));
+  e.addClause(compound("rate", [num(0.1, "0.1M")]));
+
+  var table = db._tables["q$rate$1"];
+  var keys = Object.keys(table.rows);
+  var row = table.rows[keys[0]];
+  assert(row.arg0 === "0.1", "value string");
+  assert(row.arg0_lo < row.arg0_hi, "lo < hi (non-point interval)");
+  assert(row.arg0_lo <= 0.1 && row.arg0_hi >= 0.1, "interval brackets double");
 });
 
 test("atom has null interval", function() {
@@ -437,7 +517,6 @@ test("atom has null interval", function() {
   assert(row.arg0 === "btc", "primary value");
   assert(row.arg0_lo === null || row.arg0_lo === undefined, "lo null for atom");
   assert(row.arg0_hi === null || row.arg0_hi === undefined, "hi null for atom");
-  assert(row.arg0_x === null || row.arg0_x === undefined, "x null for atom");
 });
 
 test("multiple predicates", function() {

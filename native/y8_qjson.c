@@ -1,5 +1,5 @@
 /* ============================================================
- * qjson.c — Native C QJSON parser/serializer
+ * y8_qjson.c — y8 (Wyatt) native C API: QJSON + interval projection
  *
  * Arena-allocated recursive descent.  Zero malloc per parse.
  * ============================================================ */
@@ -7,19 +7,24 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "qjson.h"
+#include <fenv.h>
+#include <math.h>
+#include <float.h>
+#include "y8_qjson.h"
+
+#pragma STDC FENV_ACCESS ON
 
 /* ── Arena ───────────────────────────────────────────────── */
 
-void qj_arena_init(qj_arena *a, void *buf, size_t cap) {
+void y8_arena_init(y8_arena *a, void *buf, size_t cap) {
     a->buf = (char *)buf;
     a->used = 0;
     a->cap = cap;
 }
 
-void qj_arena_reset(qj_arena *a) { a->used = 0; }
+void y8_arena_reset(y8_arena *a) { a->used = 0; }
 
-void *qj_arena_alloc(qj_arena *a, size_t size) {
+void *y8_arena_alloc(y8_arena *a, size_t size) {
     size = (size + 7) & ~(size_t)7; /* align to 8 */
     if (a->used + size > a->cap) return NULL;
     void *p = a->buf + a->used;
@@ -27,8 +32,8 @@ void *qj_arena_alloc(qj_arena *a, size_t size) {
     return p;
 }
 
-static char *arena_strdup(qj_arena *a, const char *s, int len) {
-    char *p = qj_arena_alloc(a, len + 1);
+static char *arena_strdup(y8_arena *a, const char *s, int len) {
+    char *p = y8_arena_alloc(a, len + 1);
     if (!p) return NULL;
     memcpy(p, s, len);
     p[len] = '\0';
@@ -41,7 +46,7 @@ typedef struct {
     const char *s;
     int         pos;
     int         len;
-    qj_arena   *arena;
+    y8_arena   *arena;
 } pstate;
 
 static char peek(pstate *p) { return p->pos < p->len ? p->s[p->pos] : 0; }
@@ -71,17 +76,17 @@ static void skip_ws(pstate *p) {
     }
 }
 
-static qj_val *parse_value(pstate *p);
+static y8_val *parse_value(pstate *p);
 
-static qj_val *make_val(pstate *p, qj_type t) {
-    qj_val *v = qj_arena_alloc(p->arena, sizeof(qj_val));
+static y8_val *make_val(pstate *p, y8_type t) {
+    y8_val *v = y8_arena_alloc(p->arena, sizeof(y8_val));
     if (v) { memset(v, 0, sizeof(*v)); v->type = t; }
     return v;
 }
 
 /* ── String parsing ──────────────────────────────────────── */
 
-static qj_val *parse_string_val(pstate *p) {
+static y8_val *parse_string_val(pstate *p) {
     p->pos++; /* skip opening " */
     /* First pass: compute length */
     int start = p->pos, escaped_len = 0;
@@ -95,7 +100,7 @@ static qj_val *parse_string_val(pstate *p) {
     p->pos++; /* skip closing " */
 
     /* Second pass: unescape */
-    char *buf = qj_arena_alloc(p->arena, escaped_len + 1);
+    char *buf = y8_arena_alloc(p->arena, escaped_len + 1);
     if (!buf) return NULL;
     int out = 0, i = start;
     while (i < raw_end) {
@@ -121,7 +126,7 @@ static qj_val *parse_string_val(pstate *p) {
     }
     buf[out] = '\0';
 
-    qj_val *v = make_val(p, QJ_STRING);
+    y8_val *v = make_val(p, Y8_STRING);
     if (v) { v->str.s = buf; v->str.len = out; }
     return v;
 }
@@ -146,7 +151,7 @@ static char *parse_ident(pstate *p, int *out_len) {
 
 /* ── Number parsing ──────────────────────────────────────── */
 
-static qj_val *parse_number(pstate *p) {
+static y8_val *parse_number(pstate *p) {
     int start = p->pos;
     if (peek(p) == '-') p->pos++;
     while (p->pos < p->len && p->s[p->pos] >= '0' && p->s[p->pos] <= '9') p->pos++;
@@ -167,24 +172,24 @@ static qj_val *parse_number(pstate *p) {
     char suffix = (p->pos < p->len) ? p->s[p->pos] : 0;
     if (suffix == 'N' || suffix == 'n') {
         p->pos++;
-        qj_val *v = make_val(p, QJ_BIGINT);
+        y8_val *v = make_val(p, Y8_BIGINT);
         if (v) { v->str.s = raw; v->str.len = raw_len; }
         return v;
     }
     if (suffix == 'M' || suffix == 'm') {
         p->pos++;
-        qj_val *v = make_val(p, QJ_BIGDEC);
+        y8_val *v = make_val(p, Y8_BIGDEC);
         if (v) { v->str.s = raw; v->str.len = raw_len; }
         return v;
     }
     if (suffix == 'L' || suffix == 'l') {
         p->pos++;
-        qj_val *v = make_val(p, QJ_BIGFLOAT);
+        y8_val *v = make_val(p, Y8_BIGFLOAT);
         if (v) { v->str.s = raw; v->str.len = raw_len; }
         return v;
     }
 
-    qj_val *v = make_val(p, QJ_NUM);
+    y8_val *v = make_val(p, Y8_NUM);
     if (v) v->num = atof(raw);
     (void)is_float;
     return v;
@@ -192,19 +197,19 @@ static qj_val *parse_number(pstate *p) {
 
 /* ── Array parsing ───────────────────────────────────────── */
 
-static qj_val *parse_array(pstate *p) {
+static y8_val *parse_array(pstate *p) {
     p->pos++; /* [ */
     skip_ws(p);
 
     /* Collect into temp array (max 256 items, then grow) */
-    qj_val *items[256];
+    y8_val *items[256];
     int count = 0, cap = 256;
-    qj_val **heap_items = NULL;
-    qj_val **cur = items;
+    y8_val **heap_items = NULL;
+    y8_val **cur = items;
 
     if (peek(p) == ']') { p->pos++; goto done; }
     for (;;) {
-        qj_val *item = parse_value(p);
+        y8_val *item = parse_value(p);
         if (!item) return NULL;
         if (count >= cap) {
             /* Overflow stack — shouldn't happen for typical messages */
@@ -220,22 +225,22 @@ static qj_val *parse_array(pstate *p) {
     }
 
 done:;
-    qj_val *v = make_val(p, QJ_ARRAY);
+    y8_val *v = make_val(p, Y8_ARRAY);
     if (!v) return NULL;
     v->arr.count = count;
-    v->arr.items = qj_arena_alloc(p->arena, count * sizeof(qj_val *));
-    if (v->arr.items) memcpy(v->arr.items, cur, count * sizeof(qj_val *));
+    v->arr.items = y8_arena_alloc(p->arena, count * sizeof(y8_val *));
+    if (v->arr.items) memcpy(v->arr.items, cur, count * sizeof(y8_val *));
     (void)heap_items;
     return v;
 }
 
 /* ── Object parsing ──────────────────────────────────────── */
 
-static qj_val *parse_object(pstate *p) {
+static y8_val *parse_object(pstate *p) {
     p->pos++; /* { */
     skip_ws(p);
 
-    qj_kv pairs[128];
+    y8_kv pairs[128];
     int count = 0;
 
     if (peek(p) == '}') { p->pos++; goto done; }
@@ -244,7 +249,7 @@ static qj_val *parse_object(pstate *p) {
         /* Key: quoted string or bare identifier */
         const char *key; int key_len;
         if (peek(p) == '"') {
-            qj_val *ks = parse_string_val(p);
+            y8_val *ks = parse_string_val(p);
             if (!ks) return NULL;
             key = ks->str.s; key_len = ks->str.len;
         } else {
@@ -254,7 +259,7 @@ static qj_val *parse_object(pstate *p) {
         skip_ws(p);
         if (peek(p) != ':') return NULL;
         p->pos++;
-        qj_val *val = parse_value(p);
+        y8_val *val = parse_value(p);
         if (!val) return NULL;
         if (count < 128) {
             pairs[count].key = key;
@@ -271,37 +276,37 @@ static qj_val *parse_object(pstate *p) {
     }
 
 done:;
-    qj_val *v = make_val(p, QJ_OBJECT);
+    y8_val *v = make_val(p, Y8_OBJECT);
     if (!v) return NULL;
     v->obj.count = count;
-    v->obj.pairs = qj_arena_alloc(p->arena, count * sizeof(qj_kv));
-    if (v->obj.pairs) memcpy(v->obj.pairs, pairs, count * sizeof(qj_kv));
+    v->obj.pairs = y8_arena_alloc(p->arena, count * sizeof(y8_kv));
+    if (v->obj.pairs) memcpy(v->obj.pairs, pairs, count * sizeof(y8_kv));
     return v;
 }
 
 /* ── Value dispatch ──────────────────────────────────────── */
 
-static qj_val *parse_value(pstate *p) {
+static y8_val *parse_value(pstate *p) {
     skip_ws(p);
     char c = peek(p);
     if (c == '"') return parse_string_val(p);
     if (c == '{') return parse_object(p);
     if (c == '[') return parse_array(p);
     if (c == 't' && p->pos + 4 <= p->len && memcmp(p->s + p->pos, "true", 4) == 0)
-        { p->pos += 4; return make_val(p, QJ_TRUE); }
+        { p->pos += 4; return make_val(p, Y8_TRUE); }
     if (c == 'f' && p->pos + 5 <= p->len && memcmp(p->s + p->pos, "false", 5) == 0)
-        { p->pos += 5; return make_val(p, QJ_FALSE); }
+        { p->pos += 5; return make_val(p, Y8_FALSE); }
     if (c == 'n' && p->pos + 4 <= p->len && memcmp(p->s + p->pos, "null", 4) == 0)
-        { p->pos += 4; return make_val(p, QJ_NULL); }
+        { p->pos += 4; return make_val(p, Y8_NULL); }
     if (c == '-' || (c >= '0' && c <= '9')) return parse_number(p);
     return NULL;
 }
 
 /* ── Public parse ────────────────────────────────────────── */
 
-qj_val *qj_parse(qj_arena *a, const char *text, int len) {
+y8_val *y8_parse(y8_arena *a, const char *text, int len) {
     pstate p = { text, 0, len, a };
-    qj_val *v = parse_value(&p);
+    y8_val *v = parse_value(&p);
     skip_ws(&p);
     return v;
 }
@@ -333,36 +338,36 @@ static int emit_str_escaped(char *buf, int pos, int cap, const char *s, int len)
     return pos;
 }
 
-static int stringify_val(const qj_val *v, char *buf, int pos, int cap) {
+static int stringify_val(const y8_val *v, char *buf, int pos, int cap) {
     if (!v) return emit(buf, pos, cap, "null", 4);
     switch (v->type) {
-    case QJ_NULL:  return emit(buf, pos, cap, "null", 4);
-    case QJ_TRUE:  return emit(buf, pos, cap, "true", 4);
-    case QJ_FALSE: return emit(buf, pos, cap, "false", 5);
-    case QJ_NUM: {
+    case Y8_NULL:  return emit(buf, pos, cap, "null", 4);
+    case Y8_TRUE:  return emit(buf, pos, cap, "true", 4);
+    case Y8_FALSE: return emit(buf, pos, cap, "false", 5);
+    case Y8_NUM: {
         char tmp[32];
         int n = snprintf(tmp, sizeof(tmp), "%.17g", v->num);
         return emit(buf, pos, cap, tmp, n);
     }
-    case QJ_BIGINT:
+    case Y8_BIGINT:
         pos = emit(buf, pos, cap, v->str.s, v->str.len);
         return emit_char(buf, pos, cap, 'N');
-    case QJ_BIGDEC:
+    case Y8_BIGDEC:
         pos = emit(buf, pos, cap, v->str.s, v->str.len);
         return emit_char(buf, pos, cap, 'M');
-    case QJ_BIGFLOAT:
+    case Y8_BIGFLOAT:
         pos = emit(buf, pos, cap, v->str.s, v->str.len);
         return emit_char(buf, pos, cap, 'L');
-    case QJ_STRING:
+    case Y8_STRING:
         return emit_str_escaped(buf, pos, cap, v->str.s, v->str.len);
-    case QJ_ARRAY:
+    case Y8_ARRAY:
         pos = emit_char(buf, pos, cap, '[');
         for (int i = 0; i < v->arr.count; i++) {
             if (i > 0) pos = emit_char(buf, pos, cap, ',');
             pos = stringify_val(v->arr.items[i], buf, pos, cap);
         }
         return emit_char(buf, pos, cap, ']');
-    case QJ_OBJECT:
+    case Y8_OBJECT:
         pos = emit_char(buf, pos, cap, '{');
         for (int i = 0; i < v->obj.count; i++) {
             if (i > 0) pos = emit_char(buf, pos, cap, ',');
@@ -375,7 +380,7 @@ static int stringify_val(const qj_val *v, char *buf, int pos, int cap) {
     return pos;
 }
 
-int qj_stringify(const qj_val *v, char *buf, int cap) {
+int y8_stringify(const y8_val *v, char *buf, int cap) {
     int n = stringify_val(v, buf, 0, cap > 0 ? cap - 1 : 0);
     if (cap > 0) buf[n < cap ? n : cap - 1] = '\0';
     return n;
@@ -383,8 +388,8 @@ int qj_stringify(const qj_val *v, char *buf, int cap) {
 
 /* ── Object key lookup ───────────────────────────────────── */
 
-qj_val *qj_obj_get(const qj_val *v, const char *key) {
-    if (!v || v->type != QJ_OBJECT) return NULL;
+y8_val *y8_obj_get(const y8_val *v, const char *key) {
+    if (!v || v->type != Y8_OBJECT) return NULL;
     int klen = strlen(key);
     for (int i = 0; i < v->obj.count; i++) {
         if (v->obj.pairs[i].key_len == klen &&
@@ -392,4 +397,99 @@ qj_val *qj_obj_get(const qj_val *v, const char *key) {
             return v->obj.pairs[i].val;
     }
     return NULL;
+}
+
+/* ── Interval projection ────────────────────────────────── */
+
+void y8_project(const char *raw, int len, double *lo, double *hi) {
+    char buf[320];
+    if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+    memcpy(buf, raw, len);
+    buf[len] = '\0';
+
+    int saved = fegetround();
+
+    fesetround(FE_DOWNWARD);
+    volatile double vlo = strtod(buf, NULL);
+
+    fesetround(FE_UPWARD);
+    volatile double vhi = strtod(buf, NULL);
+
+    fesetround(saved);
+    *lo = vlo;
+    *hi = vhi;
+}
+
+void y8_val_project(const y8_val *v, double *lo, double *hi) {
+    if (!v) { *lo = *hi = 0; return; }
+    switch (v->type) {
+    case Y8_NUM:
+        *lo = *hi = v->num;
+        return;
+    case Y8_BIGINT:
+    case Y8_BIGDEC:
+    case Y8_BIGFLOAT:
+        y8_project(v->str.s, v->str.len, lo, hi);
+        return;
+    default:
+        *lo = *hi = 0;
+        return;
+    }
+}
+
+/* ── Decimal string comparison ──────────────────────────── */
+
+static int abs_decimal_cmp(const char *a, int al, const char *b, int bl) {
+    /* Find decimal points */
+    int a_dot = -1, b_dot = -1;
+    for (int i = 0; i < al; i++) if (a[i] == '.') { a_dot = i; break; }
+    for (int i = 0; i < bl; i++) if (b[i] == '.') { b_dot = i; break; }
+
+    int a_int_len = a_dot >= 0 ? a_dot : al;
+    int b_int_len = b_dot >= 0 ? b_dot : bl;
+
+    /* Skip leading zeros */
+    int ai = 0, bi = 0;
+    while (ai < a_int_len && a[ai] == '0') ai++;
+    while (bi < b_int_len && b[bi] == '0') bi++;
+
+    int a_sig = a_int_len - ai;
+    int b_sig = b_int_len - bi;
+
+    /* Compare integer part length (more digits = larger) */
+    if (a_sig != b_sig) return a_sig > b_sig ? 1 : -1;
+
+    /* Compare integer part digits */
+    for (int i = 0; i < a_sig; i++) {
+        if (a[ai + i] != b[bi + i])
+            return a[ai + i] > b[bi + i] ? 1 : -1;
+    }
+
+    /* Integer parts equal — compare fractional digits */
+    const char *af = a_dot >= 0 ? a + a_dot + 1 : "";
+    int af_len = a_dot >= 0 ? al - a_dot - 1 : 0;
+    const char *bf = b_dot >= 0 ? b + b_dot + 1 : "";
+    int bf_len = b_dot >= 0 ? bl - b_dot - 1 : 0;
+
+    int max_frac = af_len > bf_len ? af_len : bf_len;
+    for (int i = 0; i < max_frac; i++) {
+        char ac = i < af_len ? af[i] : '0';
+        char bc = i < bf_len ? bf[i] : '0';
+        if (ac != bc) return ac > bc ? 1 : -1;
+    }
+
+    return 0;
+}
+
+int y8_decimal_cmp(const char *a, int a_len, const char *b, int b_len) {
+    int a_neg = (a_len > 0 && a[0] == '-');
+    int b_neg = (b_len > 0 && b[0] == '-');
+    if (a_neg && !b_neg) return -1;
+    if (!a_neg && b_neg) return 1;
+
+    int cmp = abs_decimal_cmp(
+        a + a_neg, a_len - a_neg,
+        b + b_neg, b_len - b_neg
+    );
+    return a_neg ? -cmp : cmp;
 }

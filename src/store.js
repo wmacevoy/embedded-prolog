@@ -1,5 +1,5 @@
 // ============================================================
-// store.js — Key/value store shim over Y@ Prolog
+// store.js — Key/value store shim over y8 Prolog
 //
 // Effortless state. No Prolog knowledge needed.
 //

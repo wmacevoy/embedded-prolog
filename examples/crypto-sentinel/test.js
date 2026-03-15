@@ -438,7 +438,7 @@ describe("Reactive queries", function() {
 });
 
 describe("QSQL typed storage", function() {
-  it("prices stored with native SQLite types", function() {
+  it("prices stored with value strings", function() {
     var db = new MockDB();
     var engine = freshEngine();
     persist(engine, qsqlAdapter(db));
@@ -452,8 +452,8 @@ describe("QSQL typed storage", function() {
     assert.equal(keys.length, 1, "expected 1 price row");
     var row = table.rows[keys[0]];
     assert.equal(row.arg0, "btc", "arg0 should be atom 'btc'");
-    assert.equal(row.arg1, 67432.50, "arg1 should be numeric 67432.50");
-    assert.equal(row.arg2, 1710000000, "arg2 should be numeric timestamp");
+    assert.equal(row.arg1, "67432.50", "arg1 should be value string '67432.50'");
+    assert.equal(row.arg2, "1710000000", "arg2 should be value string '1710000000'");
   });
 
   it("QJSON repr preserved in _key for round-trip", function() {

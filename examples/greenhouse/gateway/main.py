@@ -3,7 +3,7 @@
 # gateway/main.py — Greenhouse mesh gateway
 #
 # Bridges the UDP mesh network to an HTTP API.
-# Uses Y@ Python engine with ephemeral/react
+# Uses y8 Python engine with ephemeral/react
 # signal policy.
 #
 # HTTP API (port 8080 by default):

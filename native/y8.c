@@ -1,10 +1,10 @@
 /* ============================================================
- * wyatt.c — Embeddable Y@ Prolog: QuickJS + SQLite
+ * y8.c — Embeddable y8 Prolog: QuickJS + SQLite
  *
  * Text in, text out.  ~300 lines of glue.
  *
  * Compile (example):
- *   gcc -O2 -o test_wyatt wyatt.c test_wyatt.c \
+ *   gcc -O2 -o test_wyatt y8.c test_y8.c \
  *       -I/path/to/quickjs -L/path/to/quickjs -lquickjs -lm \
  *       -lsqlite3
  * ============================================================ */
@@ -14,12 +14,12 @@
 #include <stdio.h>
 #include <sqlite3.h>
 #include "quickjs.h"
-#include "wyatt.h"
-#include "wyatt_js_embed.h"
+#include "y8.h"
+#include "y8_js_embed.h"
 
 /* ── Internal state ──────────────────────────────────────── */
 
-struct wyatt {
+struct y8 {
     JSRuntime  *rt;
     JSContext  *ctx;
     sqlite3    *db;
@@ -30,15 +30,15 @@ struct wyatt {
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
-static void set_error(wyatt_t *w, const char *msg) {
+static void set_error(y8_t *w, const char *msg) {
     snprintf(w->error_buf, sizeof(w->error_buf), "%s", msg);
 }
 
-static void clear_error(wyatt_t *w) {
+static void clear_error(y8_t *w) {
     w->error_buf[0] = '\0';
 }
 
-static int check_exception(wyatt_t *w, JSValue val) {
+static int check_exception(y8_t *w, JSValue val) {
     if (!JS_IsException(val)) return 0;
     JSValue exc = JS_GetException(w->ctx);
     const char *s = JS_ToCString(w->ctx, exc);
@@ -48,7 +48,7 @@ static int check_exception(wyatt_t *w, JSValue val) {
     return 1;
 }
 
-static void set_result(wyatt_t *w, const char *s) {
+static void set_result(y8_t *w, const char *s) {
     size_t len = strlen(s) + 1;
     if (len > w->result_cap) {
         free(w->result_buf);
@@ -58,7 +58,7 @@ static void set_result(wyatt_t *w, const char *s) {
     memcpy(w->result_buf, s, len);
 }
 
-static int eval_embedded(wyatt_t *w, const char *src, const char *name) {
+static int eval_embedded(y8_t *w, const char *src, const char *name) {
     JSValue r = JS_Eval(w->ctx, src, strlen(src), name, JS_EVAL_TYPE_GLOBAL);
     if (check_exception(w, r)) { JS_FreeValue(w->ctx, r); return -1; }
     JS_FreeValue(w->ctx, r);
@@ -70,7 +70,7 @@ static int eval_embedded(wyatt_t *w, const char *src, const char *name) {
 static JSValue js_db_exec(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv) {
     (void)this_val;
-    wyatt_t *w = JS_GetContextOpaque(ctx);
+    y8_t *w = JS_GetContextOpaque(ctx);
     if (!w->db || argc < 1) return JS_UNDEFINED;
     const char *sql = JS_ToCString(ctx, argv[0]);
     if (sql) {
@@ -83,7 +83,7 @@ static JSValue js_db_exec(JSContext *ctx, JSValueConst this_val,
 static JSValue js_db_run(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv) {
     (void)this_val;
-    wyatt_t *w = JS_GetContextOpaque(ctx);
+    y8_t *w = JS_GetContextOpaque(ctx);
     if (!w->db || argc < 1) return JS_UNDEFINED;
     const char *sql = JS_ToCString(ctx, argv[0]);
     if (!sql) return JS_UNDEFINED;
@@ -117,7 +117,7 @@ static JSValue js_db_run(JSContext *ctx, JSValueConst this_val,
 static JSValue js_db_all(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv) {
     (void)this_val;
-    wyatt_t *w = JS_GetContextOpaque(ctx);
+    y8_t *w = JS_GetContextOpaque(ctx);
     if (!w->db || argc < 1) return JS_NewArray(ctx);
     const char *sql = JS_ToCString(ctx, argv[0]);
     if (!sql) return JS_NewArray(ctx);
@@ -167,7 +167,7 @@ static const char js_bootstrap[] =
   "var _adapter = null;\n"
   "var _persisted = false;\n"
   "\n"
-  "function _wyatt_setup_persist() {\n"
+  "function _y8_setup_persist() {\n"
   "  _adapter = {\n"
   "    setup: function() {\n"
   "      __db_exec('CREATE TABLE IF NOT EXISTS facts '\n"
@@ -203,11 +203,11 @@ static const char js_bootstrap[] =
   "  _persisted = true;\n"
   "}\n"
   "\n"
-  "function _wyatt_load(text) {\n"
+  "function _y8_load(text) {\n"
   "  return loadString(_engine, text);\n"
   "}\n"
   "\n"
-  "function _wyatt_query(goal_text) {\n"
+  "function _y8_query(goal_text) {\n"
   "  var goal = parseTerm(goal_text);\n"
   "  if (!goal) return null;\n"
   "  var r = _engine.queryFirst(goal);\n"
@@ -215,7 +215,7 @@ static const char js_bootstrap[] =
   "  return termToString(r);\n"
   "}\n"
   "\n"
-  "function _wyatt_query_all(goal_text, limit) {\n"
+  "function _y8_query_all(goal_text, limit) {\n"
   "  var goal = parseTerm(goal_text);\n"
   "  if (!goal) return '[]';\n"
   "  var results = _engine.query(goal, limit || 50);\n"
@@ -224,20 +224,20 @@ static const char js_bootstrap[] =
   "  return JSON.stringify(out);\n"
   "}\n"
   "\n"
-  "function _wyatt_exec(goal_text) {\n"
+  "function _y8_exec(goal_text) {\n"
   "  var goal = parseTerm(goal_text);\n"
   "  if (!goal) return false;\n"
   "  return _engine.queryFirst(goal) !== null;\n"
   "}\n"
   "\n"
-  "function _wyatt_fossilize() {\n"
+  "function _y8_fossilize() {\n"
   "  return fossilize(_engine);\n"
   "}\n";
 
 /* ── Public API ──────────────────────────────────────────── */
 
-wyatt_t *wyatt_open(const char *db_path) {
-    wyatt_t *w = calloc(1, sizeof(*w));
+y8_t *y8_open(const char *db_path) {
+    y8_t *w = calloc(1, sizeof(*w));
     if (!w) return NULL;
 
     w->result_cap = 1024;
@@ -262,15 +262,15 @@ wyatt_t *wyatt_open(const char *db_path) {
     /* Also expose termToString + parseTerm from parser */
     JS_FreeValue(w->ctx, global);
 
-    /* Load embedded Y@ modules (order matters) */
-    if (eval_embedded(w, js_reactive_src, "reactive.js") < 0) goto fail;
-    if (eval_embedded(w, js_prolog_engine_src, "prolog-engine.js") < 0) goto fail;
-    if (eval_embedded(w, js_parser_src, "parser.js") < 0) goto fail;
-    if (eval_embedded(w, js_load_string_src, "loadString") < 0) goto fail;
-    if (eval_embedded(w, js_reactive_prolog_src, "reactive-prolog.js") < 0) goto fail;
-    if (eval_embedded(w, js_qjson_src, "qjson.js") < 0) goto fail;
-    if (eval_embedded(w, js_persist_src, "persist.js") < 0) goto fail;
-    if (eval_embedded(w, js_fossilize_src, "fossilize.js") < 0) goto fail;
+    /* Load embedded y8 modules (order matters) */
+    if (eval_embedded(w, y8_js_reactive, "reactive.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_prolog_engine, "prolog-engine.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_parser, "parser.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_load_string, "loadString") < 0) goto fail;
+    if (eval_embedded(w, y8_js_reactive_prolog, "reactive-prolog.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_qjson, "qjson.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_persist, "persist.js") < 0) goto fail;
+    if (eval_embedded(w, y8_js_fossilize, "fossilize.js") < 0) goto fail;
 
     /* Bootstrap: create engine + helpers */
     if (eval_embedded(w, js_bootstrap, "bootstrap") < 0) goto fail;
@@ -284,18 +284,18 @@ wyatt_t *wyatt_open(const char *db_path) {
         } else {
             sqlite3_exec(w->db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
             /* Wire persist adapter */
-            if (eval_embedded(w, "_wyatt_setup_persist();", "persist-init") < 0) goto fail;
+            if (eval_embedded(w, "_y8_setup_persist();", "persist-init") < 0) goto fail;
         }
     }
 
     return w;
 
 fail:
-    wyatt_close(w);
+    y8_close(w);
     return NULL;
 }
 
-void wyatt_close(wyatt_t *w) {
+void y8_close(y8_t *w) {
     if (!w) return;
     if (w->db) sqlite3_close(w->db);
     if (w->ctx) JS_FreeContext(w->ctx);
@@ -304,7 +304,7 @@ void wyatt_close(wyatt_t *w) {
     free(w);
 }
 
-int wyatt_load(wyatt_t *w, const char *prolog_text) {
+int y8_load(y8_t *w, const char *prolog_text) {
     clear_error(w);
     /* Escape the text for JS string */
     size_t len = strlen(prolog_text);
@@ -313,7 +313,7 @@ int wyatt_load(wyatt_t *w, const char *prolog_text) {
     if (!js) { set_error(w, "out of memory"); return -1; }
 
     char *p = js;
-    p += sprintf(p, "_wyatt_load(\"");
+    p += sprintf(p, "_y8_load(\"");
     for (size_t i = 0; i < len; i++) {
         char c = prolog_text[i];
         if (c == '"') { *p++ = '\\'; *p++ = '"'; }
@@ -334,7 +334,7 @@ int wyatt_load(wyatt_t *w, const char *prolog_text) {
     return count;
 }
 
-const char *wyatt_query(wyatt_t *w, const char *goal_text) {
+const char *y8_query(y8_t *w, const char *goal_text) {
     clear_error(w);
     size_t len = strlen(goal_text);
     size_t buf_size = len * 2 + 64;
@@ -342,7 +342,7 @@ const char *wyatt_query(wyatt_t *w, const char *goal_text) {
     if (!js) { set_error(w, "out of memory"); return NULL; }
 
     char *p = js;
-    p += sprintf(p, "_wyatt_query(\"");
+    p += sprintf(p, "_y8_query(\"");
     for (size_t i = 0; i < len; i++) {
         char c = goal_text[i];
         if (c == '"') { *p++ = '\\'; *p++ = '"'; }
@@ -366,14 +366,14 @@ const char *wyatt_query(wyatt_t *w, const char *goal_text) {
     return s ? w->result_buf : NULL;
 }
 
-const char *wyatt_query_all(wyatt_t *w, const char *goal_text, int limit) {
+const char *y8_query_all(y8_t *w, const char *goal_text, int limit) {
     clear_error(w);
     size_t len = strlen(goal_text);
     char *js = malloc(len * 2 + 80);
     if (!js) { set_error(w, "out of memory"); return NULL; }
 
     char *p = js;
-    p += sprintf(p, "_wyatt_query_all(\"");
+    p += sprintf(p, "_y8_query_all(\"");
     for (size_t i = 0; i < len; i++) {
         char c = goal_text[i];
         if (c == '"') { *p++ = '\\'; *p++ = '"'; }
@@ -395,14 +395,14 @@ const char *wyatt_query_all(wyatt_t *w, const char *goal_text, int limit) {
     return s ? w->result_buf : NULL;
 }
 
-int wyatt_exec(wyatt_t *w, const char *goal_text) {
+int y8_exec(y8_t *w, const char *goal_text) {
     clear_error(w);
     size_t len = strlen(goal_text);
     char *js = malloc(len * 2 + 64);
     if (!js) { set_error(w, "out of memory"); return 0; }
 
     char *p = js;
-    p += sprintf(p, "_wyatt_exec(\"");
+    p += sprintf(p, "_y8_exec(\"");
     for (size_t i = 0; i < len; i++) {
         char c = goal_text[i];
         if (c == '"') { *p++ = '\\'; *p++ = '"'; }
@@ -420,9 +420,9 @@ int wyatt_exec(wyatt_t *w, const char *goal_text) {
     return ok;
 }
 
-int wyatt_fossilize(wyatt_t *w) {
+int y8_fossilize(y8_t *w) {
     clear_error(w);
-    JSValue r = JS_Eval(w->ctx, "_wyatt_fossilize()", 20, "fossilize",
+    JSValue r = JS_Eval(w->ctx, "_y8_fossilize()", 20, "fossilize",
                         JS_EVAL_TYPE_GLOBAL);
     if (check_exception(w, r)) { JS_FreeValue(w->ctx, r); return -1; }
     int32_t boundary = 0;
@@ -431,6 +431,6 @@ int wyatt_fossilize(wyatt_t *w) {
     return boundary;
 }
 
-const char *wyatt_error(wyatt_t *w) {
+const char *y8_error(y8_t *w) {
     return w->error_buf[0] ? w->error_buf : NULL;
 }

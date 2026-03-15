@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from prolog import Engine, atom, var, compound, num, deep_walk
 from persist import persist
 from qsql import (qsql_adapter, _table_name, _arg_val, _arg_interval,
-                   _safe_name, _next_up, _next_down)
+                   _safe_name, _next_up, _next_down, _rounding_dir)
 
 passed = 0
 failed = 0
@@ -90,34 +90,67 @@ def test_next_roundtrip():
     assert _next_down(_next_up(x)) == x
     assert _next_up(_next_down(x)) == x
 
+def test_rounding_dir():
+    assert _rounding_dir(42.0, "42") == 0, "42 is exact"
+    assert _rounding_dir(0.5, "0.5") == 0, "0.5 is exact"
+    assert _rounding_dir(67432.5, "67432.50") == 0, "67432.50 is exact"
+    assert _rounding_dir(0.1, "0.1") == 1, "0.1 rounds up"
+    assert _rounding_dir(0.3, "0.3") == -1, "0.3 rounds down"
+
+def test_rounding_dir_extreme():
+    # Overflow
+    assert _rounding_dir(float('inf'), "2e308") == 1, "inf > finite"
+    assert _rounding_dir(float('-inf'), "-2e308") == -1, "-inf < finite"
+    # Underflow
+    assert _rounding_dir(0.0, "5e-325") == -1, "0 < positive tiny"
+    assert _rounding_dir(0.0, "-5e-325") == 1, "0 > negative tiny"
+    assert _rounding_dir(0.0, "0") == 0, "0 == 0"
+    # Very large: 1e21 is exact (5^21 < 2^53)
+    assert _rounding_dir(1e21, "1000000000000000000000") == 0, "1e21 exact"
+    # 1e25 is NOT exact (5^25 > 2^53) → double rounds up
+    assert _rounding_dir(1e25, "10000000000000000000000000") == 1, "1e25 rounds up"
+    # Very small: 2^-20 is exact (negative power of 2)
+    assert _rounding_dir(2**-20, "0.00000095367431640625") == 0, "2^-20 exact"
+    # 1e-10 is NOT exact → rounds up
+    assert _rounding_dir(1e-10, "0.0000000001") == 1, "1e-10 rounds up"
+
 def test_interval_atom():
     iv = _arg_interval({"t": "a", "n": "btc"})
-    assert iv == ("btc", None, None, None)
+    assert iv == ("btc", None, None)
 
 def test_interval_plain_num():
     iv = _arg_interval({"t": "n", "v": 42})
-    assert iv[0] == 42
-    assert iv[1] == 42.0 and iv[2] == 42.0
-    assert iv[3] is None
+    assert len(iv) == 3, "3 elements"
+    assert iv[0] == "42", "val is string"
+    assert iv[1] == 42.0 and iv[2] == 42.0, "point interval"
 
-def test_interval_bigdecimal():
+def test_interval_exact_bigdecimal():
+    # 67432.50 is exactly representable → point interval
     iv = _arg_interval({"t": "n", "v": 67432.5, "r": "67432.50M"})
-    assert iv[0] == 67432.5
-    assert iv[1] < 67432.5, "lo < val"
-    assert iv[2] > 67432.5, "hi > val"
-    assert iv[3] == "67432.50"
+    assert iv[0] == "67432.50", "val = raw digits"
+    assert iv[1] == 67432.5, "lo = exact"
+    assert iv[2] == 67432.5, "hi = exact"
 
-def test_interval_bigint():
+def test_interval_exact_bigint():
+    # 42 is exactly representable → point interval
     iv = _arg_interval({"t": "n", "v": 42, "r": "42N"})
-    assert iv[0] == 42
-    assert iv[1] < 42.0, "lo < val"
-    assert iv[2] > 42.0, "hi > val"
-    assert iv[3] == "42"
+    assert iv[0] == "42", "val = raw digits"
+    assert iv[1] == 42.0, "lo = exact"
+    assert iv[2] == 42.0, "hi = exact"
+
+def test_interval_inexact():
+    # 0.1 is NOT exact — double rounds UP → lo = nextDown, hi = double
+    iv = _arg_interval({"t": "n", "v": 0.1, "r": "0.1M"})
+    assert iv[0] == "0.1", "val = raw digits"
+    assert iv[1] < 0.1, "lo < double (nextDown)"
+    assert iv[2] == 0.1, "hi = double (since v > exact)"
 
 def test_interval_brackets():
-    iv = _arg_interval({"t": "n", "v": 0.1, "r": "0.1M"})
-    assert iv[1] <= 0.1 <= iv[2], "interval brackets value"
-    assert iv[3] == "0.1"
+    # 0.3 rounds DOWN — double < exact 0.3
+    iv = _arg_interval({"t": "n", "v": 0.3, "r": "0.3M"})
+    assert iv[0] == "0.3", "val = raw digits"
+    assert iv[1] == 0.3, "lo = double (since v < exact)"
+    assert iv[2] > 0.3, "hi > double (nextUp)"
 
 # ── Integration tests: through persist ────────────────────────
 
@@ -239,29 +272,42 @@ def test_typed_columns():
         db = persist(e, qsql_adapter(path))
         e.query_first(compound("assert", [compound("price", [atom("aapl"), num(187)])]))
         conn = sqlite3.connect(path)
-        row = conn.execute('SELECT arg0, arg1, arg1_lo, arg1_hi, arg1_x FROM "q$price$2"').fetchone()
+        row = conn.execute('SELECT arg0, arg1, arg1_lo, arg1_hi FROM "q$price$2"').fetchone()
         assert row[0] == "aapl"
-        assert row[1] == 187
+        assert row[1] == "187", "val is string"
         assert row[2] == 187.0, "lo == val for plain num"
         assert row[3] == 187.0, "hi == val for plain num"
-        assert row[4] is None, "x is None for plain num"
         conn.close()
         db["close"]()
     with_db(run)
 
 
-def test_bigdecimal_interval():
-    """BigDecimal M values get interval columns."""
+def test_exact_bigdecimal_interval():
+    """Exact BigDecimal M values get point interval."""
     def run(path):
         e = Engine()
         db = persist(e, qsql_adapter(path))
         e.add_clause(compound("price", [atom("btc"), num(67432.5, "67432.50M")]))
         conn = sqlite3.connect(path)
-        row = conn.execute('SELECT arg1, arg1_lo, arg1_hi, arg1_x FROM "q$price$2"').fetchone()
-        assert row[0] == 67432.5, "primary value"
-        assert row[1] < 67432.5, "lo < val"
-        assert row[2] > 67432.5, "hi > val"
-        assert row[3] == "67432.50", "x = exact digits"
+        row = conn.execute('SELECT arg1, arg1_lo, arg1_hi FROM "q$price$2"').fetchone()
+        assert row[0] == "67432.50", "value string"
+        assert row[1] == 67432.5, "lo = exact (point)"
+        assert row[2] == 67432.5, "hi = exact (point)"
+        conn.close()
+        db["close"]()
+    with_db(run)
+
+
+def test_inexact_bigdecimal_interval():
+    """Inexact BigDecimal M values get 1-ULP interval."""
+    def run(path):
+        e = Engine()
+        db = persist(e, qsql_adapter(path))
+        e.add_clause(compound("rate", [num(0.1, "0.1M")]))
+        conn = sqlite3.connect(path)
+        row = conn.execute('SELECT arg0, arg0_lo, arg0_hi FROM "q$rate$1"').fetchone()
+        assert row[0] == "0.1", "value string"
+        assert row[1] < row[2], "lo < hi (non-point)"
         conn.close()
         db["close"]()
     with_db(run)
@@ -274,11 +320,10 @@ def test_atom_null_interval():
         db = persist(e, qsql_adapter(path))
         e.add_clause(compound("tag", [atom("btc")]))
         conn = sqlite3.connect(path)
-        row = conn.execute('SELECT arg0, arg0_lo, arg0_hi, arg0_x FROM "q$tag$1"').fetchone()
+        row = conn.execute('SELECT arg0, arg0_lo, arg0_hi FROM "q$tag$1"').fetchone()
         assert row[0] == "btc"
         assert row[1] is None
         assert row[2] is None
-        assert row[3] is None
         conn.close()
         db["close"]()
     with_db(run)
@@ -334,10 +379,13 @@ test("nextUp negative", test_next_up_negative)
 test("nextUp zero", test_next_up_zero)
 test("nextDown zero", test_next_down_zero)
 test("nextUp/nextDown roundtrip", test_next_roundtrip)
+test("rounding direction", test_rounding_dir)
+test("rounding direction extreme", test_rounding_dir_extreme)
 test("interval atom", test_interval_atom)
 test("interval plain num", test_interval_plain_num)
-test("interval BigDecimal", test_interval_bigdecimal)
-test("interval BigInt", test_interval_bigint)
+test("interval exact BigDecimal", test_interval_exact_bigdecimal)
+test("interval exact BigInt", test_interval_exact_bigint)
+test("interval inexact", test_interval_inexact)
 test("interval brackets value", test_interval_brackets)
 
 # Persist-compatible tests
@@ -351,7 +399,8 @@ test(":memory: database", test_memory_db)
 # Schema verification
 test("per-predicate tables", test_per_predicate_tables)
 test("typed columns", test_typed_columns)
-test("BigDecimal interval stored", test_bigdecimal_interval)
+test("exact BigDecimal interval stored", test_exact_bigdecimal_interval)
+test("inexact BigDecimal interval stored", test_inexact_bigdecimal_interval)
 test("atom null interval", test_atom_null_interval)
 test("indexes created", test_indexes_created)
 test("multiple predicates", test_multiple_predicates)

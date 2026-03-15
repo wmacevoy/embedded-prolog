@@ -1,5 +1,5 @@
 // ============================================================
-// persist.js — One-function database persistence for Y@ Prolog
+// persist.js — One-function database persistence for y8 Prolog
 //
 // Uses engine.onAssert / engine.onRetract callbacks — no
 // monkey-patching.  Ephemeral scopes become SQL transactions.

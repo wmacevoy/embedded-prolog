@@ -49,7 +49,7 @@ C core:     0x80000003                  → integer comparison, no alloc
 | File | Role | Lines | Status |
 |------|------|-------|--------|
 | `prolog_core.c/h` | Terms, unification, trail | ~270 | exists |
-| `qjson.c/h` | QJSON parser/serializer | ~400 | exists |
+| `y8_qjson.c/h` | QJSON parser + interval projection | ~500 | exists |
 | `solver.c` | solve loop, builtins | ~300 | planned |
 | `parser.c` | Tokenizer + Pratt + QJSON literals | ~400 | planned |
 | **Total** | | **~1400** | |

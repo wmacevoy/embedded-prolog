@@ -54,62 +54,85 @@ For a predicate `price/3`:
 ```sql
 CREATE TABLE "q$price$3" (
   _key  TEXT PRIMARY KEY,    -- full serialized term (restore)
-  arg0  TEXT,                -- symbol (atom → TEXT)
-  arg1_lo  REAL,             -- price lo bound
-  arg1_hi  REAL,             -- price hi bound
-  arg1_x   TEXT,             -- price exact repr ("67432.50M")
-  arg2_lo  REAL,             -- timestamp lo bound
-  arg2_hi  REAL,             -- timestamp hi bound
-  arg2_x   TEXT              -- timestamp exact repr ("1710000000N")
+  arg0  TEXT,                -- symbol (atom → TEXT, no interval)
+  arg0_lo  REAL,             -- NULL for atoms
+  arg0_hi  REAL,             -- NULL for atoms
+  arg1  TEXT,                -- price value string ("67432.50")
+  arg1_lo  REAL,             -- ieee_double_round_down(price)
+  arg1_hi  REAL,             -- ieee_double_round_up(price)
+  arg2  TEXT,                -- timestamp value string ("1710000000")
+  arg2_lo  REAL,             -- ieee_double_round_down(timestamp)
+  arg2_hi  REAL              -- ieee_double_round_up(timestamp)
 );
 
-CREATE INDEX "ix$q$price$3$1" ON "q$price$3"(arg1_lo);
-CREATE INDEX "ix$q$price$3$2" ON "q$price$3"(arg2_lo);
+CREATE INDEX "ix$q$price$3$0" ON "q$price$3"(arg0);      -- atom equality
+CREATE INDEX "ix$q$price$3$0lo" ON "q$price$3"(arg0_lo);
+CREATE INDEX "ix$q$price$3$1" ON "q$price$3"(arg1);      -- value equality
+CREATE INDEX "ix$q$price$3$1lo" ON "q$price$3"(arg1_lo);  -- range queries
+CREATE INDEX "ix$q$price$3$2" ON "q$price$3"(arg2);
+CREATE INDEX "ix$q$price$3$2lo" ON "q$price$3"(arg2_lo);
 ```
 
-For atom arguments: single `arg0 TEXT` column (no interval needed).
+For atom arguments: `arg TEXT` with `lo = NULL, hi = NULL`.
 
-For plain numbers (no repr): `lo == hi`, `x` is NULL.  The extra
-columns exist but cost nothing — SQLite stores NULL as zero bytes.
+For exact doubles (most numbers): `lo == hi` → point interval.
+NULL costs 0 bytes in SQLite.  Zero overhead.
+
+For non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
 
 ## Query pushdown
 
-### Simple case: `price > 70000M`
+Every comparison follows the same pattern:
 
 ```sql
--- Phase 1: ballpark (uses index)
-WHERE arg1_lo > 70000.0
-
--- This is correct for 99.999% of rows.
--- Only wrong if a value's lo ≤ 70000 but its exact value > 70000.
--- That can only happen if 70000.0 falls inside [lo, hi].
+WHERE (ballpark)                          -- fast indexed REAL check
+  AND ((exact) OR (full_precision))       -- tiebreak for boundary zone
 ```
 
-### Exact case: boundary zone
+- **ballpark** — interval-only check on `_lo`/`_hi` columns.  Uses
+  index, eliminates 99.999% of rows.  May have false positives in
+  the boundary zone (intervals overlap).
+- **exact** — both operands are point intervals (`lo = hi`).  If so,
+  the REAL values ARE the exact values — resolve directly.  This is
+  the 99.999% fast path for values that are exact IEEE doubles.
+- **full_precision** — string comparison on the `arg` column.  Only
+  fires for the ~0.001% of values where the double is not exact
+  (e.g., `0.1M`).
+
+### Example: `a > b`
 
 ```sql
-WHERE arg1_lo > 70000.0
-   OR (arg1_hi >= 70000.0 AND arg1_x IS NOT NULL
-       AND _exact_gt(arg1_x, '70000'))
+WHERE (a_lo > b_hi)                                    -- ballpark
+  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo > b_lo)   -- exact
+       OR a > b)                                        -- full_precision
 ```
 
-`_exact_gt` is a custom SQLite function (registered via
-`sqlite3_create_function`) that compares QJSON decimal strings.
-It's only called for rows in the boundary zone — typically zero
-rows per query.
+For exact doubles: `a_lo = a_hi` and `b_lo = b_hi`, so the exact
+branch resolves it with two REAL comparisons.  No string involved.
 
-### Equality: `price = 67432.50M`
+### All comparison operators
+
+| Op | ballpark | exact (both points) | full_precision |
+|----|----------|---------------------|----------------|
+| `a < b`  | `a_hi < b_lo` | `a_lo < b_lo` | `a < b` |
+| `a <= b` | `a_hi <= b_hi` | `a_lo <= b_lo` | `a <= b` |
+| `a == b` | `NOT (a_hi < b_lo OR b_hi < a_lo)` | `a_lo = b_lo` | `a = b` |
+| `a != b` | `a_hi < b_lo OR b_hi < a_lo` | `a_lo != b_lo` | `a != b` |
+| `a >= b` | `a_lo >= b_lo` | `a_lo >= b_lo` | `a >= b` |
+| `a > b`  | `a_lo > b_hi` | `a_lo > b_lo` | `a > b` |
+
+General form:
 
 ```sql
--- Phase 1: ballpark
-WHERE arg1_lo <= 67432.5 AND arg1_hi >= 67432.5
-
--- Phase 2: exact (only for rows that pass phase 1)
-  AND (arg1_x = '67432.50' OR (arg1_x IS NULL AND arg1_lo = 67432.5))
+WHERE (ballpark)
+  AND ((a_lo = a_hi AND b_lo = b_hi AND a_lo <op> b_lo)
+       OR a <op> b)
 ```
 
-For exact equality, the string comparison is authoritative.
-The interval narrows candidates to at most 1-2 rows.
+The string comparison (`a <op> b`) uses TEXT ordering on the
+value column.  For numeric strings this requires a custom collation
+or `CAST(a AS REAL)` — but it's only hit ~0.001% of the time, so
+performance is irrelevant.  Correctness matters; speed doesn't.
 
 ### Range: `price >= 60000M AND price <= 70000M`
 
@@ -122,106 +145,92 @@ values whose intervals straddle 60000.0 or 70000.0.
 
 ## Computing lo and hi
 
-### JavaScript (ES5)
+### C (canonical implementation)
 
-```javascript
-function _intervalFromNum(value) {
-  if (typeof value !== "number") return { lo: 0, hi: 0 };
-  // doubles are exact for themselves
-  return { lo: value, hi: value };
-}
+The C layer uses IEEE 754 directed rounding modes — no string
+comparison, no polyfill, just hardware math:
 
-function _intervalFromRepr(repr) {
-  // Parse the numeric part (strip N/M/L suffix)
-  var raw = repr.replace(/[NMLnml]$/, "");
-  var v = Number(raw);
+```c
+#include <fenv.h>
 
-  // If the double round-trips exactly, no interval needed
-  if (String(v) === raw || v === parseInt(raw, 10)) {
-    return { lo: v, hi: v, x: null };
-  }
+void y8_project(const char *raw, int len, double *lo, double *hi) {
+    char buf[320];
+    memcpy(buf, raw, len); buf[len] = '\0';
 
-  // Otherwise: compute lo and hi
-  // lo = largest double ≤ exact value
-  // hi = smallest double ≥ exact value
-  // Since v = nearest double, one of {v, nextDown(v)} is lo
-  // and one of {v, nextUp(v)} is hi
-
-  // Compare: is v > exact or v < exact?
-  // We know: v ≈ exact, and |v - exact| < 1 ULP
-  // If String(v) > raw (lexicographic on normalized forms): v > exact
-  // Else: v ≤ exact
-
-  var lo, hi;
-  if (_numericStringGt(String(v), raw)) {
-    // v rounds up: lo = nextDown(v), hi = v
-    lo = _nextDown(v);
-    hi = v;
-  } else if (_numericStringGt(raw, String(v))) {
-    // v rounds down: lo = v, hi = nextUp(v)
-    lo = v;
-    hi = _nextUp(v);
-  } else {
-    // exact match
-    lo = v;
-    hi = v;
-  }
-
-  return { lo: lo, hi: hi, x: repr.replace(/[NMLnml]$/, "") };
+    int saved = fegetround();
+    fesetround(FE_DOWNWARD);
+    *lo = strtod(buf, NULL);    // largest double ≤ exact
+    fesetround(FE_UPWARD);
+    *hi = strtod(buf, NULL);    // smallest double ≥ exact
+    fesetround(saved);
 }
 ```
 
-### nextUp / nextDown
+This is `y8_project()` in `native/y8_qjson.c`.  All other
+implementations are polyfills for this.
 
-IEEE 754 doubles are lexicographically ordered when viewed as
-64-bit integers (for positive values).  `nextUp(x)` is the
-smallest double greater than `x`.
+Edge cases handled by the C standard:
+
+| Input | lo | hi |
+|-------|----|----|
+| `"42"` (exact) | 42.0 | 42.0 |
+| `"0.1"` (inexact) | nextDown(0.1) | 0.1 |
+| `"9007199254740993"` (2^53+1) | 2^53 | 2^53+2 |
+| `"2e308"` (overflow) | DBL_MAX | +Infinity |
+| `"-2e308"` (neg overflow) | -Infinity | -DBL_MAX |
+| `"5e-325"` (underflow) | 0.0 | 5e-324 |
+
+### QuickJS (BigFloat)
+
+QuickJS with `CONFIG_BIGNUM` provides directed rounding natively:
 
 ```javascript
-// Using DataView for bit manipulation (ES5 compatible via polyfill)
-function _nextUp(x) {
-  if (x !== x || x === Infinity) return x;
-  if (x === 0) return 5e-324;  // Number.MIN_VALUE
-  var buf = new ArrayBuffer(8);
-  var f64 = new Float64Array(buf);
-  var u32 = new Uint32Array(buf);
-  f64[0] = x;
-  if (x > 0) {
-    // Increment the 64-bit integer
-    u32[0]++;
-    if (u32[0] === 0) u32[1]++;
-  } else {
-    // Decrement the 64-bit integer (negative doubles are reversed)
-    if (u32[0] === 0) u32[1]--;
-    u32[0]--;
-  }
-  return f64[0];
-}
+var exact = BigFloat(raw);
+var lo = Number(BigFloat.toFloat64(exact, BigFloatEnv.RNDD));
+var hi = Number(BigFloat.toFloat64(exact, BigFloatEnv.RNDU));
 ```
 
-In the native C layer (`qsql.c`), this is `nextafter(x, INFINITY)`
-from `<math.h>`.
+No string comparison needed — same as the C path.
 
-### Python
+### JavaScript (ES5 polyfill)
+
+Engines without directed rounding (Node, Bun, Deno, browser)
+detect rounding direction via `toPrecision` + decimal string
+comparison.  See `_roundingDir()` and `_decCmp()` in `src/qsql.js`.
+
+```
+v = Number(raw)           // nearest double
+dir = _roundingDir(v, raw) // 0 (exact), 1 (v > exact), -1 (v < exact)
+
+dir ==  0 → [v, v]                    // point interval
+dir ==  1 → [nextDown(v), v]          // v rounded up
+dir == -1 → [v, nextUp(v)]            // v rounded down
+```
+
+### Python (decimal.Decimal)
+
+Python uses `decimal.Decimal` for exact comparison.  See
+`_rounding_dir()` in `src/qsql.py`.
 
 ```python
-import math
+from decimal import Decimal
 
-def interval_from_repr(repr_str):
-    raw = repr_str.rstrip("NMLnml")
-    v = float(raw)
-    if str(v) == raw:
-        return (v, v, None)
-    lo = v
-    hi = math.nextafter(v, math.inf)
-    if hi < float(raw.rstrip("0") or raw):
-        lo, hi = v, math.nextafter(v, math.inf)
-    else:
-        lo, hi = math.nextafter(v, -math.inf), v
-    return (lo, hi, raw)
+d_exact  = Decimal(raw)       # exact decimal value
+d_double = Decimal(float(v))  # exact value of the double
+
+if d_double == d_exact:  lo = hi = v           # point
+elif d_double > d_exact: lo, hi = nextDown(v), v
+else:                    lo, hi = v, nextUp(v)
 ```
 
-Python's `math.nextafter` is available since 3.9.
+### Implementation hierarchy
+
+| Engine | Method | String comparison? |
+|--------|--------|--------------------|
+| C (`y8_qjson.c`) | `fesetround` + `strtod` | No |
+| QuickJS | `BigFloat.toFloat64` with rounding mode | No |
+| Python | `decimal.Decimal` exact comparison | No |
+| Node/Bun/Deno/browser | `toPrecision` + `_decCmp` | Yes (polyfill) |
 
 ## What doesn't change
 
@@ -238,26 +247,29 @@ Python's `math.nextafter` is available since 3.9.
 
 | Layer | Change |
 |-------|--------|
-| `qsql.js` `_qsql_argVal` | Returns `{lo, hi, x}` instead of bare number for M/N/L values |
-| `qsql.js` schema | Triple columns `arg_lo REAL, arg_hi REAL, arg_x TEXT` per numeric arg |
-| `qsql.js` insert | Computes interval from repr, stores all three |
-| `qsql.js` (new) `queryArgs` | SQL pushdown with interval-aware WHERE clauses |
-| `qsql.py` | Same changes |
-| `wyatt.c` (future) | Register `_exact_gt` / `_exact_lt` as SQLite custom functions |
+| `y8_qjson.h` / `y8_qjson.c` | `y8_project()`: canonical projection via `fesetround` + `strtod` |
+| `y8_qjson.h` / `y8_qjson.c` | `y8_val_project()`: project parsed values; `y8_decimal_cmp()`: string comparison |
+| `qsql.js` schema | 3 columns per arg: `arg TEXT, arg_lo REAL, arg_hi REAL` (was 4 with `_x`) |
+| `qsql.js` `_qsql_argInterval` | Returns `[val, lo, hi]` with rounding direction detection |
+| `qsql.js` `_roundingDir` | Detects whether double > or < exact decimal value |
+| `qsql.js` `_decCmp` | Decimal string comparison (polyfill for `y8_decimal_cmp`) |
+| `qsql.py` `_arg_interval` | Same — uses `decimal.Decimal` for exact comparison |
+| `qsql.py` `_rounding_dir` | Uses `decimal.Decimal` for direction detection |
+| (future) `queryArgs` | SQL pushdown with interval-aware WHERE clauses (see table above) |
 
 ## Storage overhead
 
-Per numeric argument with M/N/L suffix:
-- 2 REAL columns (16 bytes)
-- 1 TEXT column (repr string, typically 5-20 bytes)
-- vs. current: 1 REAL column (8 bytes)
+Per numeric argument: 3 columns (arg TEXT, arg_lo REAL, arg_hi REAL).
+- Value string: typically 5-20 bytes
+- 2 REAL columns: 16 bytes
+- Total: ~24-36 bytes per argument
 
-Overhead: ~24 bytes per BigNum argument.  For a `price/3` fact
-with one BigDecimal price and one BigInt timestamp: ~48 bytes
-extra.  Negligible for any real workload.
+For exact doubles (most values): `lo == hi` → the interval adds
+16 bytes of REALs but the string is short.  Atoms have `lo = hi = NULL`
+(0 bytes in SQLite).
 
-For plain numbers (no suffix): `lo == hi`, `x` is NULL.
-NULL costs 0 bytes in SQLite.  Zero overhead.
+The 4th column (`_x`) from the previous design is eliminated —
+the value string IS the primary column.
 
 ## Correctness argument
 
@@ -288,12 +300,12 @@ Engine:   67432.5 > 70000 → false (double comparison, correct)
 
 QSQL:    INSERT INTO "q$price$3" VALUES (
             '{"t":"c","f":"price","a":[...]}',  -- _key
-            'btc',                                -- arg0
-            67432.5, 67432.5, '67432.50',         -- arg1: lo, hi, exact
-            1710000000, 1710000000, NULL           -- arg2: lo==hi, no repr needed (exact int)
+            'btc', NULL, NULL,                    -- arg0: atom, no interval
+            '67432.50', 67432.5, 67432.5,         -- arg1: value, lo=hi (exact)
+            '1710000000', 1710000000, 1710000000   -- arg2: value, lo=hi (exact)
           )
 
-Query:    WHERE arg1_lo > 60000.0 AND arg1_lo < 70000.0
+Query:    WHERE arg1_lo > 60000.0 AND arg1_hi < 70000.0
           → hits index, returns row, correct
 
 Restore:  _key → deserialize → {type:"num", value:67432.5, repr:"67432.50M"}
@@ -304,6 +316,7 @@ Print:    termToString → "67432.50M"
 The exact decimal `67432.50` never becomes `67432.499999...` or
 `67432.500001...`.  The double `67432.5` happens to be exact for
 this value, so `lo == hi` and the interval has zero width.  For
-values like `0.1M` where the double is inexact (`0.1` ≠ `0.1`),
-the interval captures the error bound and the exact string
-preserves the intended value.
+values like `0.1M` where the double is inexact, the interval is
+1-ULP wide: `lo = nextDown(0.1_double), hi = 0.1_double` (since
+the double rounds UP).  The value string `"0.1"` in the primary
+column preserves the exact representation.

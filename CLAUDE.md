@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Y@ (Wyatt) — an encrypted reactive database that happens to use Prolog. Typed storage, reactive queries, encryption at rest, embeddable single binary. Same engine in Python, JavaScript, and C. Zero dependencies.
+y8 (Wyatt) — an encrypted reactive database that happens to use Prolog. Typed storage, reactive queries, encryption at rest, embeddable single binary. Same engine in Python, JavaScript, and C. Zero dependencies.
 
 ## Commands
 
@@ -72,10 +72,10 @@ SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 
 | File | Role |
 |------|------|
-| `wyatt.h` / `wyatt.c` | Embeddable C API: QuickJS + SQLite. Text in, text out |
-| `qjson.h` / `qjson.c` | Native QJSON: arena-allocated, 3.5M msg/sec, zero malloc |
+| `y8.h` / `y8.c` | Embeddable C API: QuickJS + SQLite. Text in, text out |
+| `y8_qjson.h` / `y8_qjson.c` | QJSON parser + interval projection, arena-allocated, 3.5M msg/sec, zero malloc |
 | `prolog_core.h` / `prolog_core.c` | 32-bit tagged terms, unification, trail-based backtracking |
-| `wyatt_js_embed.h` | Auto-generated: all JS modules as C string literals |
+| `y8_js_embed.h` | Auto-generated: all JS modules as C string literals |
 
 ### WASM (`wasm/`)
 
@@ -137,13 +137,25 @@ Builtins: `path_segments/2` (URL → atom list), `field/3` (JSON object field ex
 - `fossilize(engine)` — global freeze. All clauses immutable. Only ephemeral survives. Enables embarrassingly parallel forking.
 - `mineralize(engine, functor, arity)` — selective lock. Specific predicates immutable, others stay dynamic. One-way, additive. `mineralize/1` also callable from Prolog: `mineralize(threshold/4).`
 
-**QSQL interval arithmetic** — each numeric arg stored as 4 columns:
-- `arg{i}` — primary value (atom TEXT, number REAL)
-- `arg{i}_lo` — interval lower bound (REAL, NULL for atoms)
-- `arg{i}_hi` — interval upper bound (REAL, NULL for atoms)
-- `arg{i}_x` — exact repr string (TEXT, NULL when double is exact)
+**QSQL interval arithmetic** — each numeric arg stored as 3 columns:
+- `arg{i}` — value as string (atom name, or exact numeric representation)
+- `arg{i}_lo` — `ieee_double_round_down(exact_value)` (REAL, NULL for atoms)
+- `arg{i}_hi` — `ieee_double_round_up(exact_value)` (REAL, NULL for atoms)
 
-Plain numbers: `lo == hi`, `x = NULL`. BigNums: `lo = nextDown(v)`, `hi = nextUp(v)`, `x = raw digits`. Query pushdown: `WHERE arg_lo > ?` catches 99.999%; exact string fallback for boundary zone.
+Exact doubles (most numbers): `lo == hi` → point interval, zero overhead. Non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
+
+Equality: `NOT (a_hi < b_lo OR b_hi < a_lo) AND ((a_lo == a_hi AND b_lo == b_hi) OR a_val == b_val)`. Point intervals resolve via fast REAL comparison (99.999%). String fallback only for the rare non-exact boundary case.
+
+Query pushdown pattern: `WHERE (ballpark) AND ((exact) OR (full_precision))`. Ballpark = indexed REAL interval check (99.999%). Exact = both point intervals, resolve with REAL (99.999% of values). Full_precision = string comparison on value column (~0.001%).
+
+| Op | ballpark | exact (both points) | full_precision |
+|----|----------|---------------------|----------------|
+| `<`  | `a_hi < b_lo` | `a_lo < b_lo` | `a < b` |
+| `<=` | `a_hi <= b_hi` | `a_lo <= b_lo` | `a <= b` |
+| `==` | `NOT (a_hi < b_lo OR b_hi < a_lo)` | `a_lo = b_lo` | `a = b` |
+| `!=` | `a_hi < b_lo OR b_hi < a_lo` | `a_lo != b_lo` | `a != b` |
+| `>=` | `a_lo >= b_lo` | `a_lo >= b_lo` | `a >= b` |
+| `>`  | `a_lo > b_hi` | `a_lo > b_lo` | `a > b` |
 
 **Persist adapter interface** (6 methods):
 ```

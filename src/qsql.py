@@ -6,18 +6,25 @@
 # for exact BigNum comparisons.
 #
 #   price(btc, 67432.50M)  →  table "q$price$2"
-#     arg0 = 'btc', arg1 = 67432.5,
-#     arg1_lo = nextDown(67432.5), arg1_hi = nextUp(67432.5),
-#     arg1_x = '67432.50'
+#     arg0 = 'btc'              (atom → text, no interval)
+#     arg1 = '67432.50'         (value as string)
+#     arg1_lo = 67432.5         (ieee_double_round_down)
+#     arg1_hi = 67432.5         (ieee_double_round_up)
 #
-# Plain numbers: lo == hi, x is NULL. Zero overhead.
-# BigNums: 2-ULP interval brackets the exact value.
+# Each numeric arg → [round_down(x), x, round_up(x)]:
+#   arg    = value as string (exact representation)
+#   arg_lo = largest IEEE double ≤ exact value
+#   arg_hi = smallest IEEE double ≥ exact value
+#
+# Exact doubles (most numbers): lo == hi → point interval.
+# Non-exact (rare): lo + 1 ULP == hi → 1-ULP bracket.
 # ============================================================
 
 import json
 import re
 import struct
 import math
+from decimal import Decimal
 
 
 def _safe_name(name):
@@ -54,10 +61,40 @@ def _next_down(x):
     return -_next_up(-x)
 
 
+# ── Rounding direction detection ──────────────────────────────
+
+def _rounding_dir(v, raw):
+    """Determine rounding direction of double v vs exact decimal raw.
+
+    Returns: 0 (exact), 1 (v > exact), -1 (v < exact).
+    Language-agnostic: identical results to JS implementation.
+    """
+    # Overflow: Infinity > any finite exact value
+    if v == float('inf'):
+        return 1
+    if v == float('-inf'):
+        return -1
+    # Underflow to zero
+    if v == 0.0:
+        stripped = raw.lstrip('+-').replace('.', '').replace('0', '')
+        if stripped == '':
+            return 0
+        return 1 if raw.startswith('-') else -1
+    # General case: exact decimal comparison
+    d_exact = Decimal(raw)
+    d_double = Decimal(v)
+    if d_double == d_exact:
+        return 0
+    elif d_double > d_exact:
+        return 1
+    else:
+        return -1
+
+
 # ── Value conversion ─────────────────────────────────────────
 
 def _arg_val(arg):
-    """Primary value for the arg column."""
+    """Primary value for the arg column (backward compat utility)."""
     if arg is None:
         return None
     t = arg.get("t")
@@ -72,17 +109,21 @@ def _arg_val(arg):
 
 
 def _arg_interval(arg):
-    """Full interval [val, lo, hi, x] for a serialized arg.
+    """Interval [val, lo, hi] for a serialized arg.
 
-    atom:      (name, None, None, None)
-    plain num: (v,    v,    v,    None)
-    BigNum:    (v,    nextDown(v), nextUp(v), rawDigits)
+    atom:       (name,    None,          None         )
+    plain num:  (str(v),  v,             v            )  point interval
+    exact BigN: (raw,     v,             v            )  point interval
+    inexact BN: (raw,     round_down(v), round_up(v)  )  1-ULP bracket
+
+    round_down = largest IEEE double <= exact value
+    round_up   = smallest IEEE double >= exact value
     """
     if arg is None:
-        return (None, None, None, None)
+        return (None, None, None)
     t = arg.get("t")
     if t == "a":
-        return (arg["n"], None, None, None)
+        return (arg["n"], None, None)
     if t == "n":
         v = arg["v"]
         if not isinstance(v, (int, float)):
@@ -94,13 +135,19 @@ def _arg_interval(arg):
         if not r:
             # Plain number — exact
             fv = float(v) if isinstance(v, int) else v
-            return (v, fv, fv, None)
-        # BigNum with repr — compute interval
+            return (str(v), fv, fv)
+        # BigNum with repr — determine tightest interval
         raw = re.sub(r'[NMLnml]$', '', r)
         fv = float(v) if isinstance(v, int) else v
-        return (v, _next_down(fv), _next_up(fv), raw)
+        d = _rounding_dir(fv, raw)
+        if d == 0:
+            return (raw, fv, fv)              # exact double
+        elif d == 1:
+            return (raw, _next_down(fv), fv)  # v > exact
+        else:
+            return (raw, fv, _next_up(fv))    # v < exact
     # compound/other
-    return (json.dumps(arg, separators=(',', ':')), None, None, None)
+    return (json.dumps(arg, separators=(',', ':')), None, None)
 
 
 # ── Adapter Factory ──────────────────────────────────────────
@@ -125,10 +172,9 @@ def qsql_adapter(path, parse_fn=None):
         tbl = _table_name(functor, arity)
         cols = []
         for i in range(arity):
-            cols.append("arg%d" % i)
+            cols.append("arg%d TEXT" % i)
             cols.append("arg%d_lo REAL" % i)
             cols.append("arg%d_hi REAL" % i)
-            cols.append("arg%d_x TEXT" % i)
         col_str = ", ".join(cols)
         ddl = 'CREATE TABLE IF NOT EXISTS "%s" (_key TEXT PRIMARY KEY%s)' % (
             tbl, (", " + col_str) if col_str else "")

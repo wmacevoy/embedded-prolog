@@ -23,7 +23,7 @@ echo ""
 echo "Phase 1: File checks"
 
 DEMOS=(
-  "docs/index.html:Y@:PrologEngine"
+  "docs/index.html:y8:PrologEngine"
   "docs/demos/form.html:Form:PrologEngine"
   "docs/demos/tictactoe.html:Tic:PrologEngine"
   "docs/demos/adventure.html:Obsidian:PrologEngine"
@@ -149,7 +149,7 @@ if node -e "require('playwright')" 2>/dev/null; then
     (async () => {
       const browser = await chromium.launch();
       const demos = [
-        ['docs/index.html', 'Y@'],
+        ['docs/index.html', 'y8'],
         ['docs/demos/form.html', 'Sign Up'],
         ['docs/demos/tictactoe.html', 'Tic'],
         ['docs/demos/adventure.html', 'Obsidian'],

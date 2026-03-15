@@ -24,10 +24,10 @@ jobs:
       - name: Run test suite
         run: ./test.sh
 
-      - name: Run native C QJSON tests
+      - name: Run native C y8_qjson tests
         run: |
-          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c
-          ./native/test_qjson
+          gcc -O2 -Wall -std=c11 -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm
+          ./native/test_y8
 
       - name: Run native C core tests
         run: |
@@ -54,10 +54,10 @@ jobs:
       - name: Run test suite
         run: ./test.sh
 
-      - name: Run native C QJSON tests
+      - name: Run native C y8_qjson tests
         run: |
-          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c
-          ./native/test_qjson
+          gcc -O2 -Wall -std=c11 -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm
+          ./native/test_y8
 
   # ── Alpine (musl libc) — C + Python only ─────────────────
   # Alpine's system Node is too old for ESM imports.
@@ -75,7 +75,7 @@ jobs:
       - name: C tests
         run: |
           gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c && ./native/test_core
-          gcc -O2 -Wall -std=c11 -o native/test_qjson native/qjson.c native/test_qjson.c && ./native/test_qjson
+          gcc -O2 -Wall -std=c11 -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm && ./native/test_y8
 
       - name: Python tests
         run: |
@@ -127,7 +127,7 @@ jobs:
           node examples/greenhouse/test.js
           node examples/tutorial/test.js
 
-  # ── ESP32 (QEMU) — C core + QJSON only ─────────────────
+  # ── ESP32 (QEMU) — C core + y8_qjson only ─────────────────
   esp32:
     runs-on: ubuntu-latest
     steps:
@@ -143,13 +143,13 @@ jobs:
           # If cross-compiler available, validate compilation
           if command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
             xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/prolog_core.c -o /tmp/prolog_core.o
-            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/qjson.c -o /tmp/qjson.o
+            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/y8_qjson.c -o /tmp/y8_qjson.o
             echo "ESP32 cross-compilation: OK"
           else
             echo "ESP32 cross-compiler not available — skipping (install esp-idf for full test)"
             # Fall back: at least verify it compiles with host GCC
             gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/prolog_core.c -o /dev/null
-            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/qjson.c -o /dev/null
+            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/y8_qjson.c -o /dev/null
             echo "Host compilation check: OK"
           fi
 

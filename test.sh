@@ -29,6 +29,8 @@ if [ -z "$1" ] || [ "$1" = "c" ]; then
   if command -v gcc >/dev/null 2>&1; then
     run "C native core (19 tests)" \
       "gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c && ./native/test_core && rm -f native/test_core"
+    run "C native y8_qjson (64 tests)" \
+      "gcc -O2 -Wall -std=c11 -frounding-math -o native/test_y8_qjson native/test_y8_qjson.c native/y8_qjson.c -lm && ./native/test_y8_qjson && rm -f native/test_y8_qjson"
   else
     echo "  (skipping C tests — gcc not found)"
   fi

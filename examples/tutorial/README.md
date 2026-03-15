@@ -1,4 +1,4 @@
-# Tutorial — Learn Y@ step by step
+# Tutorial — Learn y8 step by step
 
 Nine progressive examples that build a smart thermostat, teaching
 one concept per file.  Each file is self-contained and runnable.

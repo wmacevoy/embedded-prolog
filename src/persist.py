@@ -1,5 +1,5 @@
 # ============================================================
-# persist.py — One-function database persistence for Y@ Prolog
+# persist.py — One-function database persistence for y8 Prolog
 #
 # Usage:
 #   from prolog import Engine

@@ -1,5 +1,5 @@
 // ============================================================
-// serve.js — HTTP request handler over Y@ Prolog
+// serve.js — HTTP request handler over y8 Prolog
 //
 // REST requests are ephemeral facts.  Routes are Prolog rules.
 // The framework is glue.
