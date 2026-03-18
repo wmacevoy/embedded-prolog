@@ -1,91 +1,76 @@
-# y8 — Wyatt Ephemeral Reactive Prolog
+# y8 — Ephemeral Reactive Prolog
 
 [![test](https://github.com/wmacevoy/wyatt/actions/workflows/test.yml/badge.svg)](https://github.com/wmacevoy/wyatt/actions/workflows/test.yml)
 
-An encrypted reactive database that happens to use Prolog.
+Events flow through pattern-matched rules.  QJSON objects are
+terms.  Exact numerics survive the round-trip.  Fossilize locks
+the rules.  Native hooks connect to the world.
 
-If you don't care about Prolog, the extra cost is incidental.
-You get typed storage, reactive queries, encryption at rest,
-and an embeddable single binary.  If you DO care about Prolog,
-you get the best trigger language nobody asked for.
-
-Python.  JavaScript.  C.  Same engine, same API, same tests.
+JavaScript.  Python.  C.  Same engine, ~300 lines each.
 
 ```
-./test.sh          # 24 suites, 700+ tests: C + Python + JavaScript
+./test.sh          # 25 suites, 750+ tests: C + Python + JavaScript
 ```
 
 Zero dependencies.  No package managers.  No build tools.
 
-## The simplest API
-
-```javascript
-import { createStore } from './src/store.js';
-
-var state = createStore();
-
-state.set("count", 0);
-state.set("name", "Alice");
-state.set("config", { threshold: 70000 });
-
-state.get("count");          // 0
-state.keys();                // ["count", "name", "config"]
-
-state.on("count", function(val) {
-  document.getElementById("counter").textContent = val;
-});
-
-state.set("count", 1);      // callback fires automatically
-```
-
-No Prolog.  No engines.  No terms.  Under the hood: reactive
-Prolog facts, typed storage, automatic change propagation.
-When you need rules, the escape hatch is `state.engine`.
-
-## When rules matter
-
-Prolog clauses are **executable specifications**.  Write the
-policy once, and the inference engine handles the combinatorial
-explosion of states that would be impossible to enumerate with
-if/else.
+## Three primitives
 
 ```prolog
-threshold(btc, above, 70000M, sell_alert).
-threshold(btc, below, 60000M, buy_alert).
+% ephemeral — transient event, never in DB, triggers react rules
+ephemeral({type: signal, from: sensor1, value: 35}).
 
-check_triggers(Symbol, Action, Price, Level) :-
-    price(Symbol, Price, _Ts),
-    threshold(Symbol, above, Level, Action),
-    Price > Level.
+% react — pattern-matched rules that fire on events and mutations
+react({type: signal, from: From, value: Val}) :-
+    trusted(From),
+    assert(reading(From, Val)),
+    send(dashboard, {from: From, value: Val}).
+
+react(assert(F))  :- native(db_insert(F), _Ok).   % persistence = two rules
+react(retract(F)) :- native(db_remove(F), _Ok).
+
+% native — call external tools registered by host
+native(sha256(Data), Hash).
+native(db_insert(Fact), Ok).
 ```
 
-Feed a price, get an alert.  Add a threshold, add a rule.
-No imperative control flow.  QJSON `M` suffix preserves exact
-decimals through the entire stack — parser, engine, storage, wire.
+No frameworks.  No plugin APIs.  Just Prolog rules.
+
+## QJSON objects as terms
+
+The data IS the term.  No `obj([k-v,...])` ceremony:
+
+```prolog
+react(on_login({user: Name, pass: Word})) :-
+    native(check_password(Name, Word), Ok),
+    Ok == true,
+    send(session, logged_in(Name)).
+```
+
+Objects unify by key intersection — `{user: Name}` matches
+`{user: alice, age: 30}` binding `Name = alice`.
 
 ## The full stack
 
 ```
-┌─────────────────────────────────────────┐
-│  Your code: I/O, UI, hardware           │
-│  Python / JavaScript / C / browser      │
-├─────────────────────────────────────────┤
-│  store.js  — key/value shim (optional)  │
-├─────────────────────────────────────────┤
-│  Reactive: signals → memos → effects    │
-├─────────────────────────────────────────┤
-│  Prolog: rules, triggers, inference     │
-├─────────────────────────────────────────┤
-│  QSQL: per-predicate typed columns      │
-│  QJSON: exact decimals, BigInt, BigFloat│
-├─────────────────────────────────────────┤
-│  SQLCipher: AES-256 encrypted at rest   │
-│  LibreSSL: TLS in transit               │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Your code: I/O, UI, hardware            │
+│  Python / JavaScript / C / browser       │
+├──────────────────────────────────────────┤
+│  native hooks (persist, crypto, I/O)     │
+│  send/collect (outgoing messages)        │
+├──────────────────────────────────────────┤
+│  y8-prolog engine (~300 lines)           │
+│  ephemeral → react (pattern dispatch)    │
+│  QJSON objects as first-class terms      │
+├──────────────────────────────────────────┤
+│  QSQL: [lo, str, hi] interval projection│
+│  QJSON: N/M/L numerics + 0j blobs       │
+├──────────────────────────────────────────┤
+│  SQLite / SQLCipher (encrypted at rest)  │
+│  WASM SQLite (browser)                   │
+└──────────────────────────────────────────┘
 ```
-
-Everything links into one binary.  Decrypted data never leaves
-the process.  No serialization boundaries.
 
 ## Where this is the only tool that works
 
@@ -93,195 +78,103 @@ the process.  No serialization boundaries.
 
 FDA Class II/III embedded devices need encrypted patient data at
 rest, exact dosages (no float rounding on 0.125mg), reactive alerts
-when vitals cross thresholds, and offline operation in ambulances
-and rural clinics.
+when vitals cross thresholds, and offline operation.
 
 ```prolog
-dosage_alert(Patient, Drug, Dose) :-
-    prescribed(Patient, Drug, Dose),
-    weight(Patient, Kg),
+react({type: vital, patient: P, drug: Drug, dose: Dose}) :-
+    weight(P, Kg),
     max_mg_per_kg(Drug, Limit),
-    Dose > Limit * Kg.
-
-contraindicated(Patient, Drug) :-
-    taking(Patient, Other),
-    interaction(Drug, Other, severe).
+    Dose > Limit * Kg,
+    send(alerts, {patient: P, drug: Drug, dose: Dose, alert: overdose}).
 ```
 
-Prolog rules for clinical decision support.  Fossilize locks the
-rules post-certification — the inference engine becomes tamper-proof.
-Single binary on a Raspberry Pi or embedded Linux.  Nothing else gives
-you encrypted + exact + reactive + embeddable + offline in one package.
+Fossilize locks the rules post-certification.  Single binary
+on a Raspberry Pi.  Encrypted + exact + reactive + embeddable.
 
 ### Edge reasoning over ML
 
-ML does perception.  Prolog does reasoning.  The reactive layer
-connects them.
+ML does perception.  Prolog does reasoning.  React rules connect them.
 
 ```prolog
-alert(evacuate) :-
-    prediction(fire, Confidence),
-    Confidence > 0.80M,
+react({type: prediction, class: fire, confidence: C}) :-
+    C > 0.80M,
     wind_speed(Speed),
-    Speed > 30.
-
-alert(shelter_in_place) :-
-    prediction(flood, Confidence),
-    Confidence > 0.70M,
-    elevation(Zone, Alt),
-    Alt < 10.
+    Speed > 30,
+    send(alerts, {action: evacuate}).
 ```
-
-The AI industry has perception solved.  Reasoning at the edge — where
-encrypted sensor data never leaves the device, where decisions must be
-explainable, where latency kills — is the gap.  Runs on a Jetson, a
-Pi, or a phone.
 
 ### Compliance engines
 
 Tax law, GDPR, HIPAA, AML/KYC as Prolog rules.  Encrypted PII.
-Reactive: when data changes, compliance checks auto-fire — not
-batch, continuous.
+Reactive: when data changes, compliance checks auto-fire.
 
 ```prolog
-gdpr_compliant(User) :-
-    consent(User, Purpose, Date),
-    retention_days(Purpose, MaxDays),
-    days_since(Date, Elapsed),
-    Elapsed < MaxDays.
-
-gdpr_violation(User, Purpose) :-
-    personal_data(User, Purpose),
-    \+ gdpr_compliant(User).
+react(assert(personal_data(User, Purpose))) :-
+    \+ gdpr_compliant(User),
+    send(compliance, {violation: gdpr, user: User, purpose: Purpose}).
 ```
 
-Fossilize: auditors verify the rules can't be modified after
-deployment.  Rules are readable Prolog, not opaque code in a
-vendor product.  Every regulated industry needs this.  Nobody
-ships it as an embeddable library.
-
-### Personal data vaults
-
-Your health records, financial data, location history — encrypted,
-on your device, with your inference rules.
-
-```javascript
-var me = createStore();
-
-me.set("meetings_mon", 3);
-me.set("meetings_tue", 2);
-me.set("meetings_wed", 0);
-
-// Rules over your own data, running locally
-// No cloud.  No trust boundary.
-```
-
-The local-first vision, but practical.  The store IS the app.
+Fossilize: auditors verify the rules can't be modified.
 
 ### Industrial control
 
-PLCs use ladder logic.  Prolog triggers are strictly more expressive.
-
 ```prolog
-alarm(overpressure, Vessel) :-
-    pressure(Vessel, P),
+react({type: reading, vessel: V, pressure: P}) :-
     P > 150.000M,
-    valve(Vessel, closed).
-
-emergency_shutdown(Vessel) :-
-    alarm(overpressure, Vessel),
-    temperature(Vessel, T),
-    T > 400.
+    valve(V, closed),
+    send(alarms, {alarm: overpressure, vessel: V}).
 ```
 
-Exact numerics for process control.  Reactive: sensor readings
-trigger rule evaluation in microseconds.  Encrypted: protects
-proprietary process recipes.  Single C binary on an RTU.
-
-### Multiplayer game logic
-
-Rules-based games where the game rules ARE Prolog and the state
-syncs offline-first.
-
-```prolog
-can_cast(Player, Spell) :-
-    has_mana(Player, M),
-    spell_cost(Spell, C),
-    M >= C,
-    \+ silenced(Player).
-
-damage(Target, Amount) :-
-    attack(Source, Target, Base),
-    armor(Target, Armor),
-    Amount is Base - Armor,
-    Amount > 0.
-```
-
-Encrypted save states.  Reactive UI.  SyncEngine for multiplayer.
-Rule correctness is money — Prolog makes it auditable.
+Exact numerics for process control.  Encrypted process recipes.
+Single C binary on an RTU.
 
 ---
 
-The pattern across all of these: **the rules are the product,
-not the code.**  Prolog makes the rules auditable, testable, and
-modifiable by domain experts (clinicians, lawyers, game designers).
-Everything else — encryption, reactivity, persistence, sync — is
-infrastructure that y8 handles so the rules can be the focus.
+The pattern: **the rules are the product, not the code.**
+Everything else — encryption, reactivity, persistence — is
+infrastructure.  y8 handles the infrastructure.
 
 ## Project layout
 
 ```
 src/
-  store.js                Key/value shim — no Prolog needed
-  serve.js                HTTP handler — routes are Prolog rules
-  prolog-engine.js        JavaScript engine (~300 lines)
+  prolog-engine.js        y8-prolog engine (~300 lines)
   prolog.py               Python engine
-  reactive.js / .py       Signals/memos/effects (~80 lines)
-  reactive-prolog.js/.py  Reactive-query bridge
-
-  parser.js               Prolog text parser + QJSON literals
+  parser.js               Prolog text parser + QJSON objects
   loader.js               loadString / loadFile
-  sync.js                 Term serialization + fact sync
-  sync-client.js          Offline-capable sync client
-  tracer.js               Query execution tracer
+  qjson.js / qjson.py     QJSON: JSON + N/M/L + 0j blobs + comments
+  qsql.js / qsql.py       QSQL: [lo, str, hi] interval projection
 
-  persist.js / persist.py SQLite/PG persistence — one function call
-  persist-sqlite / pg     Adapter trio (sqlite, sqlcipher, pg)
-  persist-wasm.js         Bridge: WASM SQLite → persist adapter
-  qsql.js / qsql.py      QSQL: per-predicate typed columns + intervals
-  qjson.js / qjson.py     QJSON: JSON + NML bignums + comments
-  fossilize.js / .py      fossilize (global) + mineralize (selective)
+  persist.js / persist.py  SQLite/PG persistence
+  persist-sqlite / pg      Adapter trio (sqlite, sqlcipher, pg)
+  persist-wasm.js          WASM SQLite → persist adapter
+  fossilize.js / .py       fossilize (global) + mineralize (selective)
+
+  reactive.js / .py        Signals/memos/effects (optional sugar)
+  reactive-prolog.js/.py   Reactive-query bridge (optional)
+  store.js                 Key/value shim (optional)
+  serve.js                 HTTP handler (optional)
+  sync.js                  Term serialization + fact sync
+  sync-client.js           Offline-capable sync client
+  tracer.js                Query execution tracer
 
 native/
-  y8.h / y8.c             Embeddable C API (QuickJS + SQLite)
-  y8_qjson.h / y8_qjson.c QJSON parser + interval projection (arena, 3.5M msg/sec)
-  prolog_core.h / .c      32-bit tagged terms + unification
+  y8.h / y8.c              Embeddable C API (QuickJS + SQLite)
+  y8_qjson.h / y8_qjson.c  QJSON parser + projection (3.5M msg/sec)
+  prolog_core.h / .c        32-bit tagged terms + unification
 
 wasm/
-  Dockerfile              Emscripten build container
-  wyatt_wasm.c            C helpers for SQLite WASM
-  shim.js                 better-sqlite3-compatible wrapper
-  build.sh                → wasm/dist/sqlite3.{js,wasm}
+  Dockerfile               Emscripten build container
+  wyatt_wasm.c             C helpers for SQLite WASM
+  shim.js                  better-sqlite3-compatible wrapper
+  build.sh                 → wasm/dist/sqlite3.{js,wasm}
 
-test.sh                   Runs everything
+test.sh                    Runs everything
 ```
 
 ## Quick start
 
-### Effortless state (no Prolog)
-
-```javascript
-import { createStore } from './src/store.js';
-
-var s = createStore();
-s.set("temperature", 22.5);
-s.on("temperature", function(val) {
-  if (val > 30) console.log("too hot!");
-});
-s.set("temperature", 35);  // → "too hot!"
-```
-
-### With rules (Prolog)
+### With rules
 
 ```javascript
 import { PrologEngine } from './src/prolog-engine.js';
@@ -300,16 +193,16 @@ e.query(PrologEngine.compound("grandparent",
 // → grandparent(tom, ann)
 ```
 
-### With QJSON typed prices
+### With QJSON
 
 ```javascript
 loadString(engine, `
   price(btc, 67432.50M, 1710000000N).
   threshold(btc, above, 70000M, sell_alert).
+  config({key: 0jSGVsbG8, debug: true}).
 `);
-// 67432.50M = exact BigDecimal, not float
-// 1710000000N = BigInt timestamp
-// Survives: parse → engine → persist → qsql column → restore → print
+// M = BigDecimal, N = BigInt, 0j = blob (JS64)
+// Exact round-trip: parse → engine → persist → restore → print
 ```
 
 ### With persistence
@@ -318,215 +211,66 @@ loadString(engine, `
 from persist import persist
 engine = Engine()
 db = persist(engine, "state.db")
-# done — facts survive restart, ephemeral = SQL transaction
+# facts survive restart
 ```
 
-### With typed storage (QSQL)
+### With QSQL typed storage
 
 ```javascript
-// Per-predicate tables with interval arithmetic
-// price(btc, 67432.50M, 1710000000N) →
-//   table "q$price$3": _key TEXT, arg0 TEXT, arg1 TEXT + arg1_lo/hi REAL, ...
-//   Exact doubles: lo == hi (point interval).  1-ULP bracket for non-exact.
+// Per-predicate tables with [lo, str, hi] interval projection
+// price(btc, 67432.50M) → table "q$price$2"
+//   arg0 = 'btc', arg1_lo = 67432.5, arg1_hi = 67432.5 (exact)
 persist(engine, qsqlAdapter(db));
 ```
 
 ### With encryption
 
 ```javascript
-// Same API, encrypted at rest
 persist(engine, sqlcipherAdapter(db, 'secret'));
 ```
-
-### Ephemeral/react signal handling
-
-```prolog
-handle_signal(From, Fact) :- ephemeral(signal(From, Fact)), react.
-
-react :- signal(From, reading(From, Type, Val, Ts)),
-         trusted(From),
-         retractall(reading(From, Type, _OldV, _OldTs)),
-         assert(reading(From, Type, Val, Ts)),
-         send(dashboard, reading(From, Type, Val, Ts)).
-```
-
-Spoofing protection for free: `signal(From, reading(From, ...))`
-forces the transport-tagged sender to match the claimed origin
-via Prolog unification.
 
 ### Embeddable C
 
 ```c
-wyatt_t *w = wyatt_open("state.db");
-wyatt_load(w, "comfort(R) :- temperature(R,T), T > 18.");
-wyatt_exec(w, "assert(temperature(kitchen, 22)).");
-const char *r = wyatt_query(w, "comfort(R).");  // "comfort(kitchen)"
-wyatt_fossilize(w);   // freeze — no injection after this
-wyatt_close(w);
+y8_t *w = y8_open("state.db");
+y8_load(w, "comfort(R) :- temperature(R,T), T > 18.");
+y8_exec(w, "assert(temperature(kitchen, 22)).");
+const char *r = y8_query(w, "comfort(R).");  // "comfort(kitchen)"
+y8_fossilize(w);   // freeze — no injection after this
+y8_close(w);
 ```
 
 Full stack in one binary: QuickJS + SQLite + parser + reactive +
-persist + QJSON + fossilize.  Text in, text out.  ~300 lines of C.
+persist + QJSON + fossilize.  Text in, text out.
 
 ### WASM SQLite for the browser
 
 ```bash
 docker compose run --rm wasm-build
-# → wasm/dist/sqlite3.js + sqlite3.wasm (1.2 MB)
+# → wasm/dist/sqlite3.js + sqlite3.wasm
 ```
 
 ```javascript
 var db = await createWasmDb("sqlite3.wasm");
 persist(engine, qsqlAdapter(db));
-// ACID transactions in the browser.  Typed columns.  Interval arithmetic.
-// Swap for SQLCipher WASM → encrypted at rest.  Same API.
+// ACID transactions in the browser.  Interval arithmetic.
 ```
-
-### HTTP server (routes are rules)
-
-```javascript
-var handler = createHandler(engine);
-http.createServer(function(req, res) {
-  var r = handler.handleRequest(req.method, req.url, body);
-  res.writeHead(r.status, r.headers);
-  res.end(r.body);
-});
-```
-
-```prolog
-handle(get, '/api/health', _Body, response(200, ok)).
-handle(post, '/api/price', Body, response(403, rejected)) :-
-    field(Body, feed, Feed), \+ trusted_feed(Feed).
-```
-
-Fossilize the rules.  Hash the clause DB.  The SHA-256 IS the
-audit artifact.  No injection.  REST requests are ephemeral.
 
 ### fossilize + mineralize
 
-```javascript
-// mineralize: lock specific predicates (rules are gems, data is water)
-mineralize(engine, "threshold", 4);   // thresholds can't change
-mineralize(engine, "react", 0);       // signal handling can't change
-// price/3 still flows freely
+```prolog
+% mineralize: lock specific predicates
+mineralize(react/1).
+mineralize(threshold/4).
+% price/3 still flows freely
 
-// fossilize: lock EVERYTHING (nuclear option, parallel-safe)
-fossilize(engine);
+% fossilize: lock EVERYTHING
+fossilize.
 ```
-
-## Examples
-
-The examples tell a progressive story — from first facts to
-encrypted reactive servers.  Each one demonstrates a different
-layer of the stack.  All are tested.
-
-### 1. Tutorial — learn the stack (30 tests)
-
-Nine steps from facts and queries to reactive signals, using a
-smart thermostat.  Start here.
-
-```
-node examples/tutorial/test.js
-```
-
-### 2. Vending machine — policy as rules (39 tests)
-
-12 sensors, 6 product slots, fault detection, credit handling,
-context-sensitive display messages.  Shows how Prolog handles
-the combinatorial explosion of states that if/else can't.
-Python + JavaScript.
-
-```
-python examples/vending/test.py     # 17 tests
-node examples/vending/test.js       # 22 tests
-```
-
-### 3. IoT router — failover logic (28 tests)
-
-Routing across 4 channels (WiFi, Cellular, LoRa, BLE) with
-battery-aware backoff.  ~72 possible states, ~25 Prolog clauses.
-Shows rules replacing a state machine.  Python.
-
-```
-python examples/router/test.py
-```
-
-### 4. Margin trading — exact decimals (28 tests)
-
-Position tracking, P&L, margin ratio thresholds, trigger
-conditions.  QJSON BigDecimal for precise financial math.
-Shows that `0.1 + 0.2 = 0.3M`, not `0.30000000000000004`.
-
-```
-node examples/margin/test.js
-```
-
-### 5. NNG sensor mesh — signal policy (40 tests)
-
-IoT sensor mesh with signal policy layer.  Spoofing protection
-via Prolog unification — `signal(From, reading(From, ...))` forces
-the transport sender to match the claimed origin.  Shows the
-ephemeral/react pattern for accepting or dropping signals.
-
-```
-node examples/nng-mesh/test.js
-```
-
-### 6. Greenhouse — multi-runtime IoT (52 tests)
-
-The full IoT stack: C sensor nodes, JS estimator + dashboard,
-Python gateway.  VPD estimation, reactive alerts, ephemeral/react
-signal policy, cross-runtime fact sync.  Shows that the same
-rules work identically in C, JavaScript, and Python.
-
-```
-node examples/greenhouse/test.js
-```
-
-### 7. Sync-todo — collaborative state (33 tests)
-
-WebSocket fact synchronization.  Shared Prolog rules on server
-and client, SolidJS reactive UI.  Shows offline-first sync with
-snapshot/assert/retract protocol.  Guide for adding encrypted
-storage: `examples/sync-todo/SECURE.md`.
-
-```
-node examples/sync-todo/test.js
-```
-
-### 8. Crypto sentinel — encrypted triggers (57 tests)
-
-BTC/ETH/SOL price monitoring with QJSON exact decimals, Prolog
-threshold triggers, trusted feed authentication, portfolio
-valuation, reactive alerts, QSQL typed storage, SyncEngine
-shared state.  Plus a full REST server where routes are Prolog
-rules, fossilized and hashed for audit.
-
-```
-node examples/crypto-sentinel/test.js          # 31 tests: engine
-node examples/crypto-sentinel/test-server.js   # 26 tests: HTTP handler
-```
-
-### 9. Browser apps — no build step
-
-Three browser demos that run by opening an HTML file.  No npm,
-no bundler, no server.
-
-- **Form validator** — SolidJS signup form with real-time
-  Prolog validation.  Password strength, cross-field dependencies.
-  `open examples/form/index.html`
-
-- **Tic-tac-toe** — Human vs. Prolog AI.  Strategy is entirely
-  rules: win → block → center → corners.
-  `open examples/tictactoe/tictactoe.html`
-
-- **Text adventure** — "The Obsidian Tower."  Rooms, items, NPCs,
-  inventory, dialogue — all Prolog facts and rules.
-  `open examples/adventure/adventure.html`
 
 ## QJSON
 
-JSON superset using QuickJS bignum syntax.
+JSON superset.  See `docs/qjson.md` for the full spec.
 
 ```javascript
 {
@@ -534,47 +278,44 @@ JSON superset using QuickJS bignum syntax.
   offset: 0.003M,               // BigDecimal — exact base-10
   nonce: 42N,                   // BigInt
   calibration: 3.14159L,        // BigFloat — full precision
+  key: 0jSGVsbG8,              // blob (JS64 binary)
   readings: [22.5, 23.1,],      // trailing commas
   /* nested /* block */ comments */
 }
 ```
 
-Valid JSON is valid QJSON.  Parse accepts uppercase or lowercase
-suffixes.  Serialize always uses uppercase.
+Valid JSON is valid QJSON.  The Prolog parser accepts QJSON
+objects as terms: `{key: Value}` with key-intersection unification.
 
-The Prolog parser also accepts QJSON literals:
-`price(btc, 67432.50M).` parses with the `M` suffix preserved
-through the entire round-trip.
+Native C: 3.5M messages/sec, arena-allocated, zero malloc.
 
-Native C implementation: 3.5M messages/sec, arena-allocated,
-zero malloc per parse.
+## Examples
 
-## Platform matrix
+Each example demonstrates a different layer.  All are tested.
 
-| Platform        | Engine        | Reactive | Persist | Run with |
-|----------------|---------------|----------|---------|----------|
-| CPython 3.7+    | `prolog.py`   | `reactive.py` | SQLite/PG | `python` |
-| MicroPython     | `prolog.py`   | `reactive.py` | — | `micropython` |
-| Node 18+        | `prolog-engine.js` | `reactive.js` | SQLite/PG | `node` |
-| Bun             | `prolog-engine.js` | `reactive.js` | bun:sqlite | `bun` |
-| QuickJS         | `prolog-engine.js` | `reactive.js` | SQLite | `qjs` |
-| Browser         | `prolog-engine.js` | `reactive.js` | — | open `.html` |
-| Browser + WASM  | `prolog-engine.js` | `reactive.js` | SQLite WASM | `createWasmDb` |
-| C/C++ (embed)   | `wyatt.c`     | auto-bump | SQLite | link |
-| C (standalone)  | `prolog_core.c` | — | — | link |
-| ESP32/RP2040    | `wyatt.c` or `prolog.py` | yes | SQLite | — |
+| Example | What it demonstrates | Tests |
+|---------|---------------------|-------|
+| `tutorial/` | 9 steps from facts to reactive signals | 30 |
+| `vending/` | Policy as rules (Python + JS) | 39 |
+| `router/` | Failover logic (Python) | 28 |
+| `margin/` | QJSON exact decimals for trading | 28 |
+| `nng-mesh/` | Ephemeral/react signal policy, spoofing protection | 40 |
+| `greenhouse/` | Multi-runtime IoT (C + JS + Python) | 52 |
+| `sync-todo/` | WebSocket sync, offline-first, SolidJS UI | 33 |
+| `crypto-sentinel/` | BTC triggers, encrypted storage, REST server | 57 |
+| `form/` | Browser form validator (SolidJS) | — |
+| `tictactoe/` | Browser game with Prolog AI | — |
+| `adventure/` | Browser text adventure | — |
 
-## Where Prolog wins over if/else
+## Documentation
 
-| Concern                  | Imperative           | Prolog               |
-|-------------------------|----------------------|----------------------|
-| Add a new sensor         | Touch every branch   | Add 1 clause         |
-| Add a new fault type     | Modify the FSM       | Add 1 fact           |
-| "Why is this blocked?"   | Write error reporting | Query existing rules |
-| Motor stuck for 1 of 6   | Per-slot if/else     | Backtracking         |
-| Runtime policy update    | Recompile, reflash   | assert/retract       |
-| Test all state combos    | Write 100s of tests  | Inference handles it |
-| Audit the decision logic | Read 2000 lines      | Read 40 clauses      |
+| Doc | Scope |
+|-----|-------|
+| `docs/y8-prolog.md` | Ephemeral reactive Prolog: primitives, react rules, freezing |
+| `docs/qjson.md` | QJSON spec: types, grammar, canonical form, SQL schema |
+| `docs/qsql.md` | Storage: projection, comparison, persistence |
+| `docs/qsql-intervals.md` | Interval arithmetic deep dive |
+| `docs/mineralize.md` | fossilize vs mineralize |
 
 ## License
 
