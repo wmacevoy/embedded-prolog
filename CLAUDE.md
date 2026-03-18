@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-y8 (Wyatt) — an encrypted reactive database that happens to use Prolog. Typed storage, reactive queries, encryption at rest, embeddable single binary. Same engine in Python, JavaScript, and C. Zero dependencies.
+y8 (Wyatt) — ephemeral reactive Prolog with QJSON. Events flow through pattern-matched rules. QJSON objects are terms. `[lo, str, hi]` interval projection for exact numerics. Fossilize/mineralize for security. Native hooks for external tools. Same engine in JavaScript, Python, and C. ~300 lines each. Zero dependencies.
 
 ## Commands
 
@@ -33,14 +33,14 @@ docker compose run --rm wasm-build
 
 ```
 Application (your I/O, UI, hardware)
+    ↕  native hooks (persist, crypto, I/O, GPIO)
+    ↕  send/collect (outgoing messages)
+y8-prolog engine (~300 lines)
+    ephemeral → react rules (pattern-matched dispatch)
+    assert/retract → react(assert/retract) rules
+    QJSON objects as first-class terms
     ↕
-store.js (KV shim) / serve.js (HTTP handler)     ← optional, no Prolog needed
-    ↕
-Reactive layer (~80 lines) — signals/memos/effects
-    ↕
-Prolog engine (~300 lines) — CPS-based inference with unification, backtracking
-    ↕
-QSQL — per-predicate typed SQLite tables with interval arithmetic
+QSQL — per-predicate typed SQLite with [lo, str, hi] projection
     ↕
 SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 ```
@@ -88,69 +88,66 @@ SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 
 ### Key patterns
 
-**Ephemeral/react** — the core signal-handling pattern:
+**Three primitives** — see `docs/y8-prolog.md` for the full spec:
+- `ephemeral(Event)` — transient event, never in DB, triggers `react(Event)`
+- `react(Pattern)` — Prolog rules that fire on mutations and events
+- `native(Call, Result)` — call external tool registered by host
+
+**React rules** — all wiring is react rules + native hooks:
 ```prolog
-handle_signal(From, Fact) :- ephemeral(signal(From, Fact)), react.
-react :- signal(From, reading(From, Type, Val, Ts)),
-         trusted(From),
-         retractall(reading(From, Type, _OldV, _OldTs)),
-         assert(reading(From, Type, Val, Ts)),
-         send(dashboard, reading(From, Type, Val, Ts)).
+% Persistence (two rules)
+react(assert(F))  :- native(db_insert(F), _Ok).
+react(retract(F)) :- native(db_remove(F), _Ok).
+
+% Signal processing with QJSON objects as terms
+react({type: signal, from: From, reading: {type: Type, value: Val}}) :-
+    trusted(From),
+    retractall(reading(From, Type, _V, _T)),
+    assert(reading(From, Type, Val)),
+    ephemeral({type: new_reading, reading_type: Type, value: Val}).
+
+% Threshold alerting
+react({type: new_reading, reading_type: Type, value: Val}) :-
+    threshold(Type, above, Limit, Alert),
+    Val > Limit,
+    send(alerts, {alert: Alert, type: Type, value: Val}).
 ```
-`ephemeral/1` scopes assertion lifetime. `send/2` captures outgoing messages. `queryWithSends(goal)` collects sends without DB pollution.
+
+**QJSON objects as terms** — no `obj([k-v,...])` ceremony:
+```prolog
+react(on_login({user: Name, pass: Word})) :-
+    native(check_password(Name, Word), Ok),
+    Ok == true,
+    send(session, logged_in(Name)).
+```
+Objects unify by key intersection: `{user: Name}` matches `{user: alice, age: 30}` → `Name = alice`. Symmetric. Extra keys pass through.
 
 **IMPORTANT:** When writing Prolog text for `loadString`, each anonymous variable must have a UNIQUE name within a clause. Bare `_` shares identity after freshening. Use `_OldV`, `_OldTs`, `_Src` etc instead of repeated `_`.
 
 **CPS execution** — `solve(goals, subst, counter, depth, onSolution)` with callback-based flow. No generators. `queryFirst` uses exception-based early exit.
 
 **Term representation:**
-- JS: `{type:"atom", name}`, `{type:"compound", functor, args}`, `{type:"num", value, repr?}`, `{type:"var", name}`
-- Python: tuples `("atom", name)`, `("compound", functor, (args,))`, `("num", value)` or `("num", value, repr)`, `("var", name)`
+- JS: `{type:"atom", name}`, `{type:"compound", functor, args}`, `{type:"num", value, repr?}`, `{type:"var", name}`, `{type:"object", pairs:[{key,value}]}`
+- Python: tuples `("atom", name)`, `("compound", functor, (args,))`, `("num", value, repr?)`, `("var", name)`, `("object", ((key,value),...))`
 - C: 32-bit tagged values (tag in bits 31:30, payload in 29:0)
 
-The optional `repr` field on num terms preserves QJSON notation (`"67432.50M"`, `"42N"`, `"3.14L"`) through the full round-trip: parse → engine → persist → qsql → restore → termToString.
-
-**QJSON in Prolog** — the parser accepts QJSON numeric literals:
+**QJSON types in Prolog** — the parser accepts all QJSON literals:
 ```prolog
-price(btc, 67432.50M, 1710000000N).
-threshold(btc, above, 70000M, sell_alert).
+price(btc, 67432.50M, 1710000000N).     % BigDecimal, BigInt
+config({key: 0jSGVsbG8, debug: true}).   % blob, object
 ```
-`M` = BigDecimal, `N` = BigInt, `L` = BigFloat. Lowercase accepted, canonicalized to uppercase. Suffix must not be followed by alphanumeric (to distinguish `42N` from `42Name`).
+`M` = BigDecimal, `N` = BigInt, `L` = BigFloat, `0j` = blob. See `docs/qjson.md`.
 
-**Store shim** — key/value API hiding Prolog:
-```javascript
-var s = createStore();
-s.set("count", 0);
-s.get("count");       // 0
-s.on("count", fn);    // reactive
-```
-Uses atomic `_kv_set` rule (retractall + assert in one query) for single-notification updates.
+**fossilize / mineralize:**
+- `fossilize` — global freeze. All clauses immutable. Ephemeral still works (no mutation). Engine becomes a pure function: events in, sends out.
+- `mineralize(react/1)` — selective freeze. Lock specific predicates. One-way, additive.
 
-**HTTP handler** — routes are Prolog rules:
-```javascript
-var h = createHandler(engine);
-var res = h.handleRequest("POST", "/api/price", body);
-```
-Builtins: `path_segments/2` (URL → atom list), `field/3` (JSON object field extraction). JSON ↔ Prolog: objects become `obj([key-val, ...])` compounds using `-` as the pair functor (not `:` — parser doesn't have `:` as infix operator).
+**QSQL interval projection** — each numeric arg stored as `[lo, str, hi]`:
+- `arg{i}_lo` REAL — `round_down(exact_value)`, NULL for atoms
+- `arg{i}` TEXT — exact string repr, NULL when `lo == hi` (exact double)
+- `arg{i}_hi` REAL — `round_up(exact_value)`, NULL for atoms
 
-**fossilize vs mineralize:**
-- `fossilize(engine)` — global freeze. All clauses immutable. Only ephemeral survives. Enables embarrassingly parallel forking.
-- `mineralize(engine, functor, arity)` — selective lock. Specific predicates immutable, others stay dynamic. One-way, additive. `mineralize/1` also callable from Prolog: `mineralize(threshold/4).`
-
-**QSQL interval arithmetic** — each numeric arg stored as 3 columns:
-- `arg{i}` — value as string (atom name, or exact numeric representation)
-- `arg{i}_lo` — `ieee_double_round_down(exact_value)` (REAL, NULL for atoms)
-- `arg{i}_hi` — `ieee_double_round_up(exact_value)` (REAL, NULL for atoms)
-
-Exact doubles (most numbers): `lo == hi` → point interval, zero overhead. Non-exact BigNums (rare): `lo + 1 ULP == hi` → 1-ULP bracket.
-
-Query pushdown: `(interval_accept) OR ((interval_not_reject) AND cmp <op> 0)`. Intervals accept/reject via indexed REAL; `y8_decimal_cmp` only runs in the overlap zone (~0.001%). Example: `a < b` = `(a_hi < b_lo) OR ((a_lo < b_hi) AND cmp < 0)`. For `==`: `(a_hi >= b_lo AND b_hi >= a_lo) AND cmp == 0` — intervals can never prove equality.
-
-**Persist adapter interface** (6 methods):
-```
-setup(), insert(key, functor, arity), remove(key),
-all(predicates), commit(), close()
-```
+Equality is data identity: `lo(x)=lo(y) AND hi(x)=hi(y) AND str(x)=str(y)`. Ordering: `[lo(x) < hi(y)] AND ({hi(x) < lo(y)} OR val(x) < val(y))`. See `docs/qjson.md` and `docs/qsql.md`.
 
 ## Constraints
 

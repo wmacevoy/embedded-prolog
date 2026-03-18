@@ -100,93 +100,30 @@ For SQL WHERE clauses, expand inline for index usage:
 The interval branches use indexed REAL columns (99.999%).
 `y8_decimal_cmp` only fires in the overlap zone (~0.001%).
 
-## Ephemeral ↔ Transaction
+## Persistence via react rules
 
-Prolog's `ephemeral/1` scopes assertion lifetime to a single
-query.  In QSQL, this maps to SQLite transaction semantics.
-
-### The pattern
+Persistence is not a built-in layer — it's two react rules
+and native hooks.  See `docs/y8-prolog.md`.
 
 ```prolog
-handle_signal(From, Fact) :-
-    ephemeral(signal(From, Fact)),
-    react.
+react(assert(F))  :- native(db_insert(F), _Ok).
+react(retract(F)) :- native(db_remove(F), _Ok).
 ```
 
-`ephemeral(Goal)` asserts Goal, runs the continuation, then
-retracts Goal — regardless of success or failure.  The fact
-exists only for the duration of the query.
-
-### How it maps to SQLite
-
-| Prolog | SQLite |
-|--------|--------|
+| Prolog | SQLite (via native hook) |
+|--------|--------------------------|
 | `assert(F)` | `INSERT INTO q$... VALUES (...)` |
 | `retract(F)` | `DELETE FROM q$... WHERE _key = ?` |
-| `ephemeral(F)` | INSERT → query → DELETE (no commit) |
-| `retractall(F/A)` | `DELETE FROM q$... WHERE ...` |
+| `ephemeral(F)` | no SQL — never touches the database |
 
-Ephemeral facts are **not persisted**.  The persist layer
-intercepts `assert`/`retract` and mirrors them to SQLite,
-but ephemeral facts live only in the in-memory clause
-database.  They never touch disk.
+- **Persistent facts** = database state.  `assert` triggers
+  `react(assert(F))` which calls `native(db_insert(F), _)`.
+  Survives restart.
+- **Ephemeral events** = transient signals.  `ephemeral(Event)`
+  triggers `react(Event)` but never enters the database.
+  Zero I/O.
 
-This is the right semantics:
-
-- **Persistent facts** = the database state.  Survives restart.
-  `assert(price(btc, 67432.50M))` → INSERT + commit.
-- **Ephemeral facts** = signals, events, transient state.
-  `ephemeral(signal(sensor1, reading(22.5)))` → in-memory
-  only.  Gone after the query.  No I/O.
-
-### Transaction boundaries
-
-```
-assert(F)      →  INSERT (auto-commit via WAL)
-retractall(F)  →  DELETE (auto-commit)
-ephemeral(F)   →  no SQL at all
-```
-
-The persist adapter's `commit()` is called at natural
-boundaries (end of `queryFirst`, end of batch).  SQLite WAL
-mode means readers never block writers.
-
-### Why this works
-
-Ephemeral facts are the Prolog equivalent of local variables
-in a transaction.  They carry information through a chain of
-rules (`signal → react → send`) without polluting the
-persistent database.  The `queryWithSends` pattern collects
-outgoing messages from an ephemeral signal without any
-database writes:
-
-```javascript
-var sends = engine.queryWithSends(
-    compound("handle_signal", [atom("sensor1"), reading])
-);
-// sends = [{to: "dashboard", msg: reading(...)}]
-// No database touched.  Signal already gone.
-```
-
-This is zero-cost message passing through the rule engine.
-
-## Persist adapter interface
-
-Six methods.  Any SQLite-compatible backend (better-sqlite3,
-WASM SQLite, SQLCipher, PostgreSQL) implements these:
-
-```
-setup()                          -- CREATE TABLE IF NOT EXISTS
-insert(key, functor, arity)      -- INSERT into per-predicate table
-remove(key)                      -- DELETE by _key
-all(predicates?)                 -- SELECT _key for restore
-commit()                         -- flush to disk
-close()                          -- release resources
-```
-
-The adapter never parses terms — it receives the serialized
-`_key` string and extracts typed columns via `_qsql_argInterval`.
-Restoration is just `addClause(deserialize(_key))`.
+SQLite WAL mode: readers never block writers.
 
 ## Full round-trip
 
