@@ -260,13 +260,67 @@ calling the next continuation.
 - `depth` — recursion depth (for limits)
 - `onSolution` — callback on success
 
+## QJSON objects as terms
+
+QJSON object literals are first-class terms in y8-prolog.
+No ceremony — the data IS the term:
+
+```prolog
+react(on_login({user: Name, pass: Word})) :-
+    native(check_password, Name, Word, Ok),
+    Ok == true,
+    send(session, logged_in(Name)).
+
+react(signal({from: From, type: Type, value: Val})) :-
+    trusted(From),
+    Val > threshold(Type),
+    send(alerts, {type: Type, value: Val, from: From}).
+```
+
+### Object unification
+
+Objects unify by key intersection.  For each key that appears
+in both objects, the values must unify.  Keys present in only
+one object are unconstrained — the pattern picks the fields
+it cares about:
+
+```prolog
+% {user: Name} unifies with {user: "alice", age: 30, role: "admin"}
+% → Name = "alice"  (age and role ignored)
+
+% {user: "alice"} unifies with {user: "alice", age: 30}
+% → succeeds  (alice = alice, age ignored)
+
+% {user: "alice"} fails against {user: "bob"}
+% → fails  (alice ≠ bob)
+```
+
+This is symmetric: `unify(A, B) == unify(B, A)`.
+Keys in both → values must match.  Keys in only one → pass.
+
+### Object terms in the engine
+
+```
+{user: "alice", age: 30}
+```
+
+becomes:
+
+```javascript
+// JS
+{ type: "object", pairs: [
+    { key: "user", value: { type: "atom", name: "alice" } },
+    { key: "age",  value: { type: "num", value: 30 } }
+]}
+```
+
 ## Term representation
 
-| Language | Atom | Compound | Number | Variable |
-|----------|------|----------|--------|----------|
-| JS | `{type:"atom", name}` | `{type:"compound", functor, args}` | `{type:"num", value, repr?}` | `{type:"var", name}` |
-| Python | `("atom", name)` | `("compound", functor, (args,))` | `("num", value)` or `("num", value, repr)` | `("var", name)` |
-| C | 32-bit tagged (tag 31:30, payload 29:0) | | | |
+| Language | Atom | Compound | Number | Variable | Object |
+|----------|------|----------|--------|----------|--------|
+| JS | `{type:"atom", name}` | `{type:"compound", functor, args}` | `{type:"num", value, repr?}` | `{type:"var", name}` | `{type:"object", pairs:[{key,value}]}` |
+| Python | `("atom", name)` | `("compound", functor, (args,))` | `("num", value, repr?)` | `("var", name)` | `("object", ((key,value),...))` |
+| C | 32-bit tagged (tag 31:30, payload 29:0) | | | | |
 
 The optional `repr` field preserves QJSON notation
 (`"67432.50M"`, `"42N"`) through the full round-trip.

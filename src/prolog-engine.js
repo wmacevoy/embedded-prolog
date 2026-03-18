@@ -31,6 +31,7 @@ PrologEngine.atom = function(name) { return { type: "atom", name: name }; };
 PrologEngine.variable = function(name) { return { type: "var", name: name }; };
 PrologEngine.compound = function(functor, args) { return { type: "compound", functor: functor, args: args }; };
 PrologEngine.num = function(n, repr) { var t = { type: "num", value: n }; if (repr) t.repr = repr; return t; };
+PrologEngine.object = function(pairs) { return { type: "object", pairs: pairs }; };
 
 PrologEngine.list = function(items, tail) {
   var l = tail || PrologEngine.atom("[]");
@@ -59,6 +60,13 @@ PrologEngine.prototype.deepWalk = function(term, subst) {
     }
     return PrologEngine.compound(term.functor, args);
   }
+  if (term.type === "object") {
+    var pairs = [];
+    for (var i = 0; i < term.pairs.length; i++) {
+      pairs.push({ key: term.pairs[i].key, value: this.deepWalk(term.pairs[i].value, subst) });
+    }
+    return PrologEngine.object(pairs);
+  }
   return term;
 };
 
@@ -78,6 +86,22 @@ PrologEngine.prototype.unify = function(a, b, subst) {
     for (var i = 0; i < a.args.length; i++) {
       s = this.unify(a.args[i], b.args[i], s);
       if (s === null) return null;
+    }
+    return s;
+  }
+  // Object terms: for each key present in both, unify the values.
+  // Keys present in only one object are ignored (subset matching, symmetric).
+  if (a.type === "object" && b.type === "object") {
+    var s = subst;
+    for (var i = 0; i < a.pairs.length; i++) {
+      var aKey = a.pairs[i].key;
+      for (var j = 0; j < b.pairs.length; j++) {
+        if (b.pairs[j].key === aKey) {
+          s = this.unify(a.pairs[i].value, b.pairs[j].value, s);
+          if (s === null) return null;
+          break;
+        }
+      }
     }
     return s;
   }
@@ -119,6 +143,13 @@ PrologEngine.prototype._freshVars = function(clause, counter) {
       var args = [];
       for (var i = 0; i < term.args.length; i++) args.push(rename(term.args[i]));
       return PrologEngine.compound(term.functor, args);
+    }
+    if (term.type === "object") {
+      var pairs = [];
+      for (var i = 0; i < term.pairs.length; i++) {
+        pairs.push({ key: term.pairs[i].key, value: rename(term.pairs[i].value) });
+      }
+      return PrologEngine.object(pairs);
     }
     return term;
   }
@@ -437,6 +468,14 @@ function _termEq(a, b) {
     }
     return true;
   }
+  if (a.type === "object") {
+    if (a.pairs.length !== b.pairs.length) return false;
+    for (var i = 0; i < a.pairs.length; i++) {
+      if (a.pairs[i].key !== b.pairs[i].key) return false;
+      if (!_termEq(a.pairs[i].value, b.pairs[i].value)) return false;
+    }
+    return true;
+  }
   return false;
 }
 
@@ -460,6 +499,13 @@ function termToString(term) {
     var strs = [];
     for (var i = 0; i < term.args.length; i++) strs.push(termToString(term.args[i]));
     return term.functor + "(" + strs.join(",") + ")";
+  }
+  if (term.type === "object") {
+    var strs = [];
+    for (var i = 0; i < term.pairs.length; i++) {
+      strs.push(term.pairs[i].key + ":" + termToString(term.pairs[i].value));
+    }
+    return "{" + strs.join(",") + "}";
   }
   return "?";
 }

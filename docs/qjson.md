@@ -151,6 +151,9 @@ typedef enum {
 All three implementations parse and stringify the same format.
 The C implementation is the reference.
 
+In y8-prolog, QJSON objects are first-class terms with
+key-intersection unification.  See `docs/y8-prolog.md`.
+
 ## Grammar
 
 JSON defines its representation in terms of characters (Unicode

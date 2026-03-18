@@ -936,6 +936,146 @@ describe("Edge cases", function() {
   });
 });
 
+describe("QJSON objects as terms", function() {
+  it("parses empty object", function() {
+    var t = parseTerm("{}");
+    assert.equal(t.type, "object");
+    assert.equal(t.pairs.length, 0);
+  });
+
+  it("parses single-key object", function() {
+    var t = parseTerm("{user: alice}");
+    assert.equal(t.type, "object");
+    assert.equal(t.pairs.length, 1);
+    assert.equal(t.pairs[0].key, "user");
+    assert.equal(t.pairs[0].value.name, "alice");
+  });
+
+  it("parses multi-key object", function() {
+    var t = parseTerm("{user: alice, age: 30}");
+    assert.equal(t.type, "object");
+    assert.equal(t.pairs.length, 2);
+    assert.equal(t.pairs[0].key, "user");
+    assert.equal(t.pairs[1].key, "age");
+    assert.equal(t.pairs[1].value.value, 30);
+  });
+
+  it("parses object with variables", function() {
+    var t = parseTerm("{user: Name, pass: Word}");
+    assert.equal(t.pairs[0].value.type, "var");
+    assert.equal(t.pairs[0].value.name, "Name");
+    assert.equal(t.pairs[1].value.type, "var");
+    assert.equal(t.pairs[1].value.name, "Word");
+  });
+
+  it("parses object with trailing comma", function() {
+    var t = parseTerm("{a: 1, b: 2,}");
+    assert.equal(t.pairs.length, 2);
+  });
+
+  it("parses object inside compound", function() {
+    var t = parseTerm("react({user: Name})");
+    assert.equal(t.functor, "react");
+    assert.equal(t.args[0].type, "object");
+    assert.equal(t.args[0].pairs[0].key, "user");
+  });
+
+  it("parses nested objects", function() {
+    var t = parseTerm("{user: {name: alice, role: admin}}");
+    assert.equal(t.pairs[0].value.type, "object");
+    assert.equal(t.pairs[0].value.pairs[0].key, "name");
+  });
+
+  it("parses object with QJSON number", function() {
+    var t = parseTerm("{price: 67432.50M}");
+    assert.equal(t.pairs[0].value.value, 67432.5);
+    assert.equal(t.pairs[0].value.repr, "67432.50M");
+  });
+
+  it("parses object in clause head", function() {
+    var c = parseClause("react({from: From, type: Type}) :- trusted(From).");
+    assert.equal(c.head.functor, "react");
+    assert.equal(c.head.args[0].type, "object");
+    assert.equal(c.body.length, 1);
+  });
+
+  it("parses object in program", function() {
+    var prog = parseProgram(
+      "react({from: From}) :- trusted(From).\n" +
+      "react({type: alert, msg: Msg}) :- send(log, Msg).\n"
+    );
+    assert.equal(prog.length, 2);
+    assert.equal(prog[0].head.args[0].type, "object");
+    assert.equal(prog[1].head.args[0].pairs[0].key, "type");
+  });
+
+  it("termToString round-trips object", function() {
+    var t = parseTerm("{user: alice, age: 30}");
+    var s = termToString(t);
+    assert.equal(s, "{user:alice,age:30}");
+  });
+
+  it("object unification: exact match", function() {
+    var engine = new PrologEngine();
+    var a = parseTerm("{user: alice}");
+    var b = parseTerm("{user: alice}");
+    var s = engine.unify(a, b, new Map());
+    assert.ok(s !== null, "same objects should unify");
+  });
+
+  it("object unification: variable binding", function() {
+    var engine = new PrologEngine();
+    var a = parseTerm("{user: X}");
+    var b = parseTerm("{user: alice}");
+    var s = engine.unify(a, b, new Map());
+    assert.ok(s !== null, "should unify");
+    assert.equal(s.get("X").name, "alice");
+  });
+
+  it("object unification: subset match (extra keys ignored)", function() {
+    var engine = new PrologEngine();
+    var pattern = parseTerm("{user: Name}");
+    var data = parseTerm("{user: alice, age: 30, role: admin}");
+    var s = engine.unify(pattern, data, new Map());
+    assert.ok(s !== null, "subset should match");
+    assert.equal(s.get("Name").name, "alice");
+  });
+
+  it("object unification: symmetric", function() {
+    var engine = new PrologEngine();
+    var a = parseTerm("{user: Name}");
+    var b = parseTerm("{user: alice, age: 30}");
+    var s1 = engine.unify(a, b, new Map());
+    var s2 = engine.unify(b, a, new Map());
+    assert.ok(s1 !== null && s2 !== null, "both directions succeed");
+  });
+
+  it("object unification: value mismatch fails", function() {
+    var engine = new PrologEngine();
+    var a = parseTerm("{user: alice}");
+    var b = parseTerm("{user: bob}");
+    var s = engine.unify(a, b, new Map());
+    assert.equal(s, null, "different values should fail");
+  });
+
+  it("object in query via loadString", function() {
+    var engine = new PrologEngine();
+    var prog = parseProgram(
+      "user_info({name: alice, role: admin}).\n" +
+      "user_info({name: bob, role: viewer}).\n" +
+      "admins(Name) :- user_info({name: Name, role: admin}).\n"
+    );
+    for (var i = 0; i < prog.length; i++) {
+      engine.addClause(prog[i].head, prog[i].body);
+    }
+    var results = engine.query(
+      PrologEngine.compound("admins", [PrologEngine.variable("N")])
+    );
+    assert.equal(results.length, 1);
+    assert.equal(results[0].args[0].name, "alice");
+  });
+});
+
 describe("QJSON round-trip via termToString", function() {
   it("BigInt round-trips", function() {
     var t = parseTerm("42N");

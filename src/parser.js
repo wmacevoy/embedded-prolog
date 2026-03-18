@@ -23,6 +23,9 @@ var TOK_BAR    = "BAR";
 var TOK_COMMA  = "COMMA";
 var TOK_DOT    = "DOT";
 var TOK_OP     = "OP";
+var TOK_LBRACE = "LBRACE";
+var TOK_RBRACE = "RBRACE";
+var TOK_COLON  = "COLON";
 var TOK_EOF    = "EOF";
 
 // ── Operator table ──────────────────────────────────────────
@@ -263,6 +266,8 @@ Tokenizer.prototype._tokenize = function() {
     if (ch === "[") { this._advance(); this.tokens.push({ type: TOK_LBRACK, value: "[" }); continue; }
     if (ch === "]") { this._advance(); this.tokens.push({ type: TOK_RBRACK, value: "]" }); continue; }
     if (ch === "|") { this._advance(); this.tokens.push({ type: TOK_BAR, value: "|" }); continue; }
+    if (ch === "{") { this._advance(); this.tokens.push({ type: TOK_LBRACE, value: "{" }); continue; }
+    if (ch === "}") { this._advance(); this.tokens.push({ type: TOK_RBRACE, value: "}" }); continue; }
 
     // Dot: end of clause if followed by whitespace/EOF/comment
     if (ch === ".") {
@@ -291,6 +296,13 @@ Tokenizer.prototype._tokenize = function() {
 
     // Exclamation mark (cut) - treat as atom
     if (ch === "!") { this._advance(); this.tokens.push({ type: TOK_ATOM, value: "!" }); continue; }
+
+    // Standalone colon (not :- which is a symbolic operator)
+    if (ch === ":" && !(this.pos + 1 < this.text.length && this.text.charAt(this.pos + 1) === "-")) {
+      this._advance();
+      this.tokens.push({ type: TOK_COLON, value: ":" });
+      continue;
+    }
 
     // Symbolic operators
     if (_isSymChar(ch)) {
@@ -447,6 +459,11 @@ Parser.prototype._parsePrimary = function() {
     return expr;
   }
 
+  // QJSON object literal
+  if (tok.type === TOK_LBRACE) {
+    return this._parseObject();
+  }
+
   // List
   if (tok.type === TOK_LBRACK) {
     return this._parseList();
@@ -532,6 +549,37 @@ Parser.prototype._parseList = function() {
     result = { type: "compound", functor: ".", args: [items[i], result] };
   }
   return result;
+};
+
+Parser.prototype._parseObject = function() {
+  this.tokenizer.expect(TOK_LBRACE);
+  var pairs = [];
+  if (this.tokenizer.peek().type !== TOK_RBRACE) {
+    while (true) {
+      // Key: atom or quoted atom (string key)
+      var keyTok = this.tokenizer.next();
+      var key;
+      if (keyTok.type === TOK_ATOM) {
+        key = keyTok.value;
+      } else if (keyTok.type === TOK_VAR) {
+        throw new Error("Object keys must be atoms, got variable: " + keyTok.value);
+      } else {
+        throw new Error("Expected object key (atom), got: " + keyTok.type);
+      }
+      this.tokenizer.expect(TOK_COLON);
+      var value = this.parseExpr(999);
+      pairs.push({ key: key, value: value });
+      if (this.tokenizer.peek().type === TOK_COMMA) {
+        this.tokenizer.next();
+        // Allow trailing comma
+        if (this.tokenizer.peek().type === TOK_RBRACE) break;
+      } else {
+        break;
+      }
+    }
+  }
+  this.tokenizer.expect(TOK_RBRACE);
+  return { type: "object", pairs: pairs };
 };
 
 // ── Clause body flattening ──────────────────────────────────
@@ -641,6 +689,7 @@ function parseProgram(text) {
     subParser._parsePrimary = Parser.prototype._parsePrimary;
     subParser._parseCompound = Parser.prototype._parseCompound;
     subParser._parseList = Parser.prototype._parseList;
+    subParser._parseObject = Parser.prototype._parseObject;
 
     var term = subParser.parseExpr(1200);
 
