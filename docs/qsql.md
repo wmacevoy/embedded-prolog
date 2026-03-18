@@ -63,7 +63,7 @@ Every numeric argument projects to three values:
 |-------|----|-----|----|
 | `42` (exact double) | 42.0 | `"42"` | 42.0 |
 | `67432.50M` (exact) | 67432.5 | `"67432.50"` | 67432.5 |
-| `0.1M` (inexact) | nextDown(0.1) | `"0.1"` | 0.1 |
+| `0.1M` (inexact) | round_down(0.1) | `"0.1"` | round_up(0.1) |
 | `9007199254740993N` | 2^53 | `"9007199254740993"` | 2^53+2 |
 | `2e308M` (overflow) | DBL_MAX | `"2e308"` | +Infinity |
 | atom `btc` | NULL | `"btc"` | NULL |

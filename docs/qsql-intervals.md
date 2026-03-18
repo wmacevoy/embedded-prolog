@@ -172,7 +172,7 @@ Edge cases handled by the C standard:
 | Input | lo | hi |
 |-------|----|----|
 | `"42"` (exact) | 42.0 | 42.0 |
-| `"0.1"` (inexact) | nextDown(0.1) | 0.1 |
+| `"0.1"` (inexact) | round_down(0.1) | round_up(0.1) |
 | `"9007199254740993"` (2^53+1) | 2^53 | 2^53+2 |
 | `"2e308"` (overflow) | DBL_MAX | +Infinity |
 | `"-2e308"` (neg overflow) | -Infinity | -DBL_MAX |
@@ -315,6 +315,6 @@ The exact decimal `67432.50` never becomes `67432.499999...` or
 `67432.500001...`.  The double `67432.5` happens to be exact for
 this value, so `lo == hi` and the interval has zero width.  For
 values like `0.1M` where the double is inexact, the interval is
-1-ULP wide: `lo = nextDown(0.1_double), hi = 0.1_double` (since
-the double rounds UP).  The value string `"0.1"` in the primary
-column preserves the exact representation.
+1-ULP wide: `lo = round_down(0.1), hi = round_up(0.1)`.
+The value string `"0.1"` in the primary column preserves
+the exact representation.

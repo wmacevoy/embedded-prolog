@@ -336,3 +336,109 @@ Different type suffixes create different values:
 | string | `"..."` minimal escapes, literal UTF-8 |
 | array | `[v,v,v]` |
 | object | `{"k":v,"k":v}` sorted keys, quoted |
+
+## SQL representation
+
+Normalized schema for storing arbitrary QJSON values in SQL.
+Null and boolean need no child table — the `type` column
+carries the full value.  All numeric types share one table
+with `[lo, str, hi]` interval projection.
+
+```sql
+CREATE TABLE value (
+    id   INTEGER PRIMARY KEY,
+    type TEXT NOT NULL
+    -- 'null', 'true', 'false',
+    -- 'number', 'bigint', 'bigdec', 'bigfloat',
+    -- 'string', 'blob', 'array', 'object'
+);
+
+-- All numeric types: [lo, str, hi] projection.
+-- str is NULL when lo == hi (exact double — 99.999% of rows).
+-- value.type distinguishes number/bigint/bigdec/bigfloat.
+CREATE TABLE number_value (
+    id       INTEGER PRIMARY KEY,
+    value_id INTEGER REFERENCES value(id),
+    lo       REAL,    -- round_down_ieee754(exact_value)
+    str      TEXT,    -- exact string repr, NULL when lo == hi
+    hi       REAL     -- round_up_ieee754(exact_value)
+);
+
+CREATE TABLE string_value (
+    id       INTEGER PRIMARY KEY,
+    value_id INTEGER REFERENCES value(id),
+    value    TEXT
+);
+
+CREATE TABLE blob_value (
+    id       INTEGER PRIMARY KEY,
+    value_id INTEGER REFERENCES value(id),
+    value    BLOB
+);
+
+CREATE TABLE array_value (
+    id       INTEGER PRIMARY KEY,
+    value_id INTEGER REFERENCES value(id)
+);
+
+CREATE TABLE array_item (
+    id       INTEGER PRIMARY KEY,
+    array_id INTEGER REFERENCES array_value(id),
+    idx      INTEGER,
+    value_id INTEGER REFERENCES value(id)
+);
+
+CREATE TABLE object_value (
+    id       INTEGER PRIMARY KEY,
+    value_id INTEGER REFERENCES value(id)
+);
+
+CREATE TABLE object_item (
+    id        INTEGER PRIMARY KEY,
+    object_id INTEGER REFERENCES object_value(id),
+    key       TEXT,
+    value_id  INTEGER REFERENCES value(id)
+);
+```
+
+The `number_value.str` optimization: when `lo == hi`, the IEEE
+double IS the exact value — no string needed.
+
+| Value | type | lo | str | hi |
+|-------|------|----|-----|----|
+| `42` | number | 42.0 | NULL | 42.0 |
+| `67432.50M` | bigdec | 67432.5 | NULL | 67432.5 |
+| `0.1M` | bigdec | round_down(0.1) | `"0.1"` | round_up(0.1) |
+| `9007199254740993N` | bigint | round_down(9e15+1) | `"9007199254740993"` | round_up(9e15+1) |
+
+`round_down` = largest IEEE double ≤ exact value.
+`round_up` = smallest IEEE double ≥ exact value.
+When the exact value IS an IEEE double: `round_down = round_up = value`.
+
+## WHERE efficiency
+
+The `[lo, str, hi]` representation enables three tiers of
+filtering, each eliminating rows before the next fires:
+
+```
+x < y  ≡  (hi(x) < lo(y))  OR  (lo(x) < hi(y) AND cmp(x,y) < 0)
+x <= y ≡  (hi(x) <= lo(y)) OR  (lo(x) <= hi(y) AND cmp(x,y) <= 0)
+x = y  ≡  (hi(x) >= lo(y) AND hi(y) >= lo(x)) AND cmp(x,y) = 0
+x != y ≡  (hi(x) < lo(y) OR hi(y) < lo(x)) OR  cmp(x,y) != 0
+```
+
+Where `cmp(x,y)` is:
+
+```
+if hi(x) < lo(y): return -1          -- intervals prove x < y
+if lo(x) > hi(y): return  1          -- intervals prove x > y
+if lo(x) == hi(x) and lo(y) == hi(y): return 0  -- both exact, same double
+return y8_decimal_cmp(str(x), str(y)) -- string comparison (overlap zone)
+```
+
+- The interval check (indexed REAL columns) handles 99.999%
+  of comparisons.
+- The `lo == hi` check resolves the next tier — both values
+  are exact doubles, no string needed.
+- `y8_decimal_cmp` only fires in the ~0.001% overlap zone
+  where two non-exact values project to overlapping intervals.
