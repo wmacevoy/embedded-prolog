@@ -37,6 +37,15 @@ loadString(e, `
   needs_heating(Room) :- temperature(Room, T), target_temp(Room, Target), T < Target.
 `);
 
+// Dynamic (faster — skips parse, use for hot paths):
+//
+// var compound = PrologEngine.compound, variable = PrologEngine.variable, num = PrologEngine.num;
+// e.addClause(
+//   compound("cold", [variable("Room")]),
+//   [compound("temperature", [variable("Room"), variable("T")]),
+//    compound("<", [variable("T"), num(65)])]
+// );
+
 // ── Queries ─────────────────────────────────────────────────
 
 var coldRooms = e.query(parseTerm("cold(R)"));

@@ -26,6 +26,12 @@ loadString(e, `
   temperature(garage, 55).
 `);
 
+// Dynamic (faster — skips parse, use for hot paths):
+//
+// var atom = PrologEngine.atom, compound = PrologEngine.compound, num = PrologEngine.num;
+// e.addClause(compound("room", [atom("kitchen")]));
+// e.addClause(compound("temperature", [atom("kitchen"), num(72)]));
+
 // ── Queries ─────────────────────────────────────────────────
 
 // What rooms exist?
