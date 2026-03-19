@@ -1,7 +1,7 @@
 // ============================================================
 // node.js — MeshNode: Prolog engine + reactive layer + transport
 //
-// Incoming signals pass through Prolog ephemeral/react rules.
+// Incoming signals pass through ephemeral/react(QJSON_object).
 // If accepted, the react rule upserts facts; otherwise dropped.
 // ============================================================
 
@@ -26,8 +26,15 @@ export class MeshNode {
     // Build engine with mesh KB
     const engine = buildMeshKB(PrologEngine, this.id);
 
-    // Wrap in reactive layer (registers ephemeral/1 builtin)
+    // Save the engine's built-in ephemeral/1 (fires _fireReact)
+    const nativeEphemeral = engine.builtins["ephemeral/1"];
+
+    // Wrap in reactive layer (auto-bump on assert/retract)
     const reactive = createReactiveEngine(engine);
+
+    // Restore engine's native ephemeral/1 — the reactive layer overrides
+    // it with old assert/solve/retract, but we want _fireReact dispatch.
+    engine.builtins["ephemeral/1"] = nativeEphemeral;
 
     // Create sync engine (bumps reactive generation on fact changes)
     const sync = new SyncEngine(engine, { onSync: reactive.bump });
@@ -51,26 +58,39 @@ export class MeshNode {
     const fact = deserialize(payload.fact);
     if (!fact) return;
 
+    // Track whether any react rule mutated the DB (= accepted)
+    let accepted = false;
+    const markAccepted = function() { accepted = true; };
+    this.engine.onAssert.push(markAccepted);
+    this.engine.onRetract.push(markAccepted);
+
     const result = this.engine.queryWithSends(
-      compound("handle_signal", [atom(fromAddress), fact])
+      compound("ephemeral", [
+        PrologEngine.object([
+          { key: "type", value: atom("signal") },
+          { key: "from", value: atom(fromAddress) },
+          { key: "fact", value: fact }
+        ])
+      ])
     );
+
+    // Remove our temporary mutation tracker
+    this.engine.onAssert.pop();
+    this.engine.onRetract.pop();
 
     this._signalLog.push({
       from: fromAddress,
       fact: fact,
-      accepted: result.result !== null
+      accepted: accepted
     });
 
-    if (result.result) {
-      for (var i = 0; i < result.sends.length; i++) {
-        var s = result.sends[i];
-        this.transport.send(s.target.name, {
-          kind: "signal",
-          from: this.id,
-          fact: serialize(s.fact)
-        });
-      }
-      this.reactive.bump();
+    for (var i = 0; i < result.sends.length; i++) {
+      var s = result.sends[i];
+      this.transport.send(s.target.name, {
+        kind: "signal",
+        from: this.id,
+        fact: serialize(s.fact)
+      });
     }
   }
 

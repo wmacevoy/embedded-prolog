@@ -1,7 +1,8 @@
 // ============================================================
 // mesh-kb.js — Prolog rules for IoT sensor mesh
 //
-// Signal policy via ephemeral/react pattern + alert detection.
+// Signal policy via react/1 rules with QJSON object terms.
+// ephemeral/1 fires react clauses; no handle_signal/2 needed.
 // ============================================================
 
 import { loadString } from "../../src/loader.js";
@@ -11,49 +12,42 @@ const MESH_RULES = `
 threshold(temperature, 0, 45).
 threshold(humidity, 10, 90).
 
-% ── Signal handling ──────────────────────────────────────
-% handle_signal/2 — entry point from JS.
-% Asserts signal(From, Fact) ephemerally, then runs react.
-% If no react clause matches, the signal is silently dropped.
-handle_signal(From, Fact) :- ephemeral(signal(From, Fact)), react.
-
 % ── React rules ──────────────────────────────────────────
-% Pattern-match on signal/2 and upsert permanent facts.
-% Spoofing protection: signal(From, reading(From, ...))
-% requires the transport-tagged sender to match the fact.
+% Pattern-match on QJSON signal objects via ephemeral/react.
+% Spoofing protection: from: From must match the From in the fact.
 
 % Coordinator accepts readings from online sensors
-react :- signal(From, reading(From, Type, Val, Ts)),
-         node_id(coordinator),
-         node_status(From, online),
-         retractall(reading(From, Type, A, B)),
-         assert(reading(From, Type, Val, Ts)),
-         check_alerts(From, Type).
+react({type: signal, from: From, fact: reading(From, Type, Val, Ts)}) :-
+    node_id(coordinator),
+    node_status(From, online),
+    retractall(reading(From, Type, _OldA, _OldB)),
+    assert(reading(From, Type, Val, Ts)),
+    check_alerts(From, Type).
 
 check_alerts(Node, Type) :-
     alert(Node, Type, Level),
     send(gateway, alert_notice(Node, Type, Level)).
-check_alerts(A, B).
+check_alerts(_AnyNode, _AnyType).
 
 % Coordinator accepts node_status from anyone
-react :- signal(From, node_status(From, Status)),
-         node_id(coordinator),
-         retractall(node_status(From, A)),
-         assert(node_status(From, Status)).
+react({type: signal, from: From, fact: node_status(From, Status)}) :-
+    node_id(coordinator),
+    retractall(node_status(From, _OldS)),
+    assert(node_status(From, Status)).
 
 % Sensor nodes accept threshold updates from coordinator
-react :- signal(coordinator, threshold(Type, Min, Max)),
-         not(node_id(coordinator)),
-         retractall(threshold(Type, A, B)),
-         assert(threshold(Type, Min, Max)).
+react({type: signal, from: coordinator, fact: threshold(Type, Min, Max)}) :-
+    not(node_id(coordinator)),
+    retractall(threshold(Type, _OldMin, _OldMax)),
+    assert(threshold(Type, Min, Max)).
 
 % Any node accepts alert_notice from coordinator
-react :- signal(coordinator, alert_notice(Node, Type, Level)),
-         not(node_id(coordinator)),
-         retractall(alert_notice(Node, Type, A)),
-         assert(alert_notice(Node, Type, Level)).
+react({type: signal, from: coordinator, fact: alert_notice(Node, Type, Level)}) :-
+    not(node_id(coordinator)),
+    retractall(alert_notice(Node, Type, _OldL)),
+    assert(alert_notice(Node, Type, Level)).
 
-% No catch-all — unmatched signals are dropped (query fails)
+% No catch-all — unmatched signals are dropped (react fails)
 
 % ── Alert detection ──────────────────────────────────────
 alert(Node, temperature, high) :-

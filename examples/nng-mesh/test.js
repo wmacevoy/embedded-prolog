@@ -43,8 +43,24 @@ function createMesh(nodeIds) {
 
 function buildReactiveKB(nodeId) {
   const engine = buildMeshKB(PrologEngine, nodeId);
-  createReactiveEngine(engine); // registers ephemeral/1
+  // Save the engine's built-in ephemeral/1 (fires _fireReact → react rules)
+  const nativeEphemeral = engine.builtins["ephemeral/1"];
+  createReactiveEngine(engine); // registers auto-bump
+  // Restore native ephemeral — reactive layer overrides with old pattern
+  engine.builtins["ephemeral/1"] = nativeEphemeral;
   return engine;
+}
+
+// ── Helper: build an ephemeral signal QJSON object ──────────
+
+function signalObject(fromAddress, fact) {
+  return compound("ephemeral", [
+    PrologEngine.object([
+      { key: "type", value: atom("signal") },
+      { key: "from", value: atom(fromAddress) },
+      { key: "fact", value: fact }
+    ])
+  ]);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -172,26 +188,27 @@ describe("Mesh KB rules", () => {
   });
 });
 
-// ── Signal policy (via handle_signal/2) ─────────────────────
+// ── Signal policy (via ephemeral + react/1) ─────────────────
 
 describe("Signal policy", () => {
   it("coordinator accepts reading from online sensor", () => {
     const e = buildReactiveKB("coordinator");
     e.addClause(compound("node_status", [atom("s1"), atom("online")]));
     const fact = compound("reading", [atom("s1"), atom("temperature"), num(22), num(1000)]);
-    const r = e.queryFirst(compound("handle_signal", [atom("s1"), fact]));
-    assert(r !== null, "handle_signal should succeed");
+    e.queryFirst(signalObject("s1", fact));
     // Verify the reading was upserted
     const reading = e.queryFirst(compound("reading", [atom("s1"), atom("temperature"), variable("V"), variable("T")]));
-    assert(reading !== null);
+    assert(reading !== null, "reading should have been asserted by react rule");
     eq(reading.args[2].value, 22);
   });
 
   it("coordinator rejects reading from unknown sensor", () => {
     const e = buildReactiveKB("coordinator");
     const fact = compound("reading", [atom("s1"), atom("temperature"), num(22), num(1000)]);
-    const r = e.queryFirst(compound("handle_signal", [atom("s1"), fact]));
-    eq(r, null, "no react match → signal dropped");
+    e.queryFirst(signalObject("s1", fact));
+    // No react rule matched → reading should NOT be in DB
+    const reading = e.queryFirst(compound("reading", [atom("s1"), atom("temperature"), variable("V"), variable("T")]));
+    eq(reading, null, "no react match → signal dropped");
   });
 
   it("coordinator rejects reading where From doesn't match node in fact", () => {
@@ -199,26 +216,25 @@ describe("Signal policy", () => {
     e.addClause(compound("node_status", [atom("s1"), atom("online")]));
     // Spoofed: signal from "s2" but fact says "s1"
     const fact = compound("reading", [atom("s1"), atom("temperature"), num(22), num(1000)]);
-    const r = e.queryFirst(compound("handle_signal", [atom("s2"), fact]));
-    eq(r, null, "From must match reading node");
+    e.queryFirst(signalObject("s2", fact));
+    const reading = e.queryFirst(compound("reading", [atom("s1"), atom("temperature"), variable("V"), variable("T")]));
+    eq(reading, null, "From must match reading node");
   });
 
   it("coordinator accepts node_status from any node", () => {
     const e = buildReactiveKB("coordinator");
     const fact = compound("node_status", [atom("new_sensor"), atom("online")]);
-    const r = e.queryFirst(compound("handle_signal", [atom("new_sensor"), fact]));
-    assert(r !== null, "should accept node_status");
+    e.queryFirst(signalObject("new_sensor", fact));
     // Verify upserted
     const status = e.queryFirst(compound("node_status", [atom("new_sensor"), variable("S")]));
-    assert(status !== null);
+    assert(status !== null, "should accept node_status");
     eq(status.args[1].name, "online");
   });
 
   it("sensor node accepts threshold from coordinator", () => {
     const e = buildReactiveKB("sensor_1");
     const fact = compound("threshold", [atom("temperature"), num(5), num(40)]);
-    const r = e.queryFirst(compound("handle_signal", [atom("coordinator"), fact]));
-    assert(r !== null, "should accept threshold");
+    e.queryFirst(signalObject("coordinator", fact));
     // Verify upserted (replaces default)
     const th = e.queryFirst(compound("threshold", [atom("temperature"), variable("Min"), variable("Max")]));
     eq(th.args[1].value, 5);
@@ -228,8 +244,9 @@ describe("Signal policy", () => {
   it("sensor node ignores reading signals", () => {
     const e = buildReactiveKB("sensor_1");
     const fact = compound("reading", [atom("s2"), atom("temperature"), num(22), num(1000)]);
-    const r = e.queryFirst(compound("handle_signal", [atom("s2"), fact]));
-    eq(r, null, "sensor nodes don't accept readings");
+    e.queryFirst(signalObject("s2", fact));
+    const reading = e.queryFirst(compound("reading", [atom("s2"), atom("temperature"), variable("V"), variable("T")]));
+    eq(reading, null, "sensor nodes don't accept readings");
   });
 });
 
@@ -372,8 +389,7 @@ describe("send/2 builtin", () => {
     const e = buildReactiveKB("coordinator");
     e.addClause(compound("node_status", [atom("s1"), atom("online")]));
     const fact = compound("reading", [atom("s1"), atom("temperature"), num(50), num(1000)]);
-    var result = e.queryWithSends(compound("handle_signal", [atom("s1"), fact]));
-    assert(result.result !== null, "should accept reading");
+    var result = e.queryWithSends(signalObject("s1", fact));
     eq(result.sends.length, 1, "should send alert_notice");
     eq(result.sends[0].target.name, "gateway");
     eq(result.sends[0].fact.functor, "alert_notice");
@@ -383,8 +399,7 @@ describe("send/2 builtin", () => {
     const e = buildReactiveKB("coordinator");
     e.addClause(compound("node_status", [atom("s1"), atom("online")]));
     const fact = compound("reading", [atom("s1"), atom("temperature"), num(22), num(1000)]);
-    var result = e.queryWithSends(compound("handle_signal", [atom("s1"), fact]));
-    assert(result.result !== null, "should accept reading");
+    var result = e.queryWithSends(signalObject("s1", fact));
     eq(result.sends.length, 0, "no sends for normal reading");
   });
 
