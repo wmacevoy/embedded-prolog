@@ -13,15 +13,11 @@
 
 #ifdef Y8_USE_LIBBF
 #include "libbf.h"
-static bf_context_t _y8_bf_ctx;
-static int _y8_bf_init = 0;
+/* No global bf_context — allocate per-call for thread safety. */
 static void *_y8_bf_realloc(void *opaque, void *ptr, size_t size) {
     (void)opaque;
     if (size == 0) { free(ptr); return NULL; }
     return realloc(ptr, size);
-}
-static void _y8_bf_ensure(void) {
-    if (!_y8_bf_init) { bf_context_init(&_y8_bf_ctx, _y8_bf_realloc, NULL); _y8_bf_init = 1; }
 }
 #else
 #include <fenv.h>
@@ -569,13 +565,15 @@ void y8_project(const char *raw, int len, double *lo, double *hi) {
     memcpy(buf, raw, len);
     buf[len] = '\0';
 
-    _y8_bf_ensure();
+    bf_context_t ctx;
+    bf_context_init(&ctx, _y8_bf_realloc, NULL);
     bf_t val;
-    bf_init(&_y8_bf_ctx, &val);
+    bf_init(&ctx, &val);
     bf_atof(&val, buf, NULL, 10, BF_PREC_INF, BF_RNDN);
     bf_get_float64(&val, lo, BF_RNDD);
     bf_get_float64(&val, hi, BF_RNDU);
     bf_delete(&val);
+    bf_context_end(&ctx);
 }
 
 #else /* fesetround + strtod fallback */
@@ -632,15 +630,17 @@ int y8_decimal_cmp(const char *a, int a_len, const char *b, int b_len) {
     memcpy(ab, a, a_len); ab[a_len] = '\0';
     memcpy(bb, b, b_len); bb[b_len] = '\0';
 
-    _y8_bf_ensure();
+    bf_context_t ctx;
+    bf_context_init(&ctx, _y8_bf_realloc, NULL);
     bf_t av, bv;
-    bf_init(&_y8_bf_ctx, &av);
-    bf_init(&_y8_bf_ctx, &bv);
+    bf_init(&ctx, &av);
+    bf_init(&ctx, &bv);
     bf_atof(&av, ab, NULL, 10, BF_PREC_INF, BF_RNDN);
     bf_atof(&bv, bb, NULL, 10, BF_PREC_INF, BF_RNDN);
     int r = bf_cmp(&av, &bv);
     bf_delete(&av);
     bf_delete(&bv);
+    bf_context_end(&ctx);
     return r < 0 ? -1 : r > 0 ? 1 : 0;
 }
 
