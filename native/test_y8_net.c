@@ -1,17 +1,20 @@
 /* ============================================================
  * test_y8_net.c — Stress tests for y8 wire framing + pipe
  *
+ * y8 model: fork, not threads. Each engine is a single-threaded
+ * process. Tests use fork + socketpair for isolation.
+ *
  * gcc -O2 -Wall -std=c11 -o test_y8_net test_y8_net.c y8_net.c
- *   -lpthread && ./test_y8_net
+ *   && ./test_y8_net
  * ============================================================ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include "y8_net.h"
 
 static int pass = 0, fail = 0;
@@ -20,8 +23,6 @@ static int pass = 0, fail = 0;
     if (cond) { pass++; printf("  ok  %s\n", name); } \
     else { fail++; printf("  FAIL %s  [line %d]\n", name, __LINE__); } \
 } while(0)
-
-/* ── Helper: create socketpair for testing ──────────── */
 
 static void make_pair(int fds[2]) {
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) {
@@ -37,7 +38,6 @@ static void test_basic_framing(void) {
     int fds[2];
     make_pair(fds);
 
-    /* Simple message */
     const char *msg = "hello";
     TEST("write succeeds", y8_frame_write(fds[1], msg, 5) == 0);
 
@@ -48,14 +48,12 @@ static void test_basic_framing(void) {
     TEST("read content", buf && memcmp(buf, "hello", 5) == 0);
     free(buf);
 
-    /* Keepalive ping */
     TEST("ping write", y8_frame_ping(fds[1]) == 0);
     r = y8_frame_read(fds[0], &buf, &len);
     TEST("ping read returns 0", r == 0);
     TEST("ping data is null", buf == NULL);
     TEST("ping len is 0", len == 0);
 
-    /* Empty message (length 0 = ping) */
     TEST("empty write", y8_frame_write(fds[1], NULL, 0) == 0);
     r = y8_frame_read(fds[0], &buf, &len);
     TEST("empty read = ping", r == 0);
@@ -89,24 +87,30 @@ static void test_binary_safety(void) {
     close(fds[0]); close(fds[1]);
 }
 
-/* ── Multiple messages in sequence ──────────────────── */
+/* ── Multiple messages (fork: writer child, reader parent) ── */
 
-static void test_multiple_messages(void) {
-    printf("\n=== Multiple messages ===\n");
+static void test_multiple_messages(int count) {
+    char label[64];
+    snprintf(label, sizeof(label), "\n=== %d messages ===", count);
+    printf("%s\n", label);
     int fds[2];
     make_pair(fds);
 
-    int count = 1000;
-    for (int i = 0; i < count; i++) {
-        char msg[32];
-        int n = snprintf(msg, sizeof(msg), "msg-%d", i);
-        if (y8_frame_write(fds[1], msg, n) < 0) {
-            TEST("write 1000 messages", 0);
-            close(fds[0]); close(fds[1]);
-            return;
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Child: write */
+        close(fds[0]);
+        for (int i = 0; i < count; i++) {
+            char msg[32];
+            int n = snprintf(msg, sizeof(msg), "msg-%d", i);
+            if (y8_frame_write(fds[1], msg, n) < 0) _exit(1);
         }
+        close(fds[1]);
+        _exit(0);
     }
 
+    /* Parent: read */
+    close(fds[1]);
     int ok = 1;
     for (int i = 0; i < count; i++) {
         char *buf = NULL; int len = 0;
@@ -118,53 +122,17 @@ static void test_multiple_messages(void) {
         }
         free(buf);
     }
-    TEST("1000 messages round-trip", ok);
+    int status;
+    waitpid(pid, &status, 0);
 
-    close(fds[0]); close(fds[1]);
+    char tname[64];
+    snprintf(tname, sizeof(tname), "%d messages round-trip", count);
+    TEST(tname, ok && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+    close(fds[0]);
 }
 
-/* ── Thread helpers (used by large message, interleaved, throughput) */
-
-typedef struct {
-    int fd;
-    int count;
-    int ok;
-} thread_arg;
-
-static void *sender_thread(void *arg) {
-    thread_arg *ta = (thread_arg *)arg;
-    ta->ok = 1;
-    for (int i = 0; i < ta->count; i++) {
-        char msg[32];
-        int n = snprintf(msg, sizeof(msg), "s%d", i);
-        if (y8_frame_write(ta->fd, msg, n) < 0) { ta->ok = 0; break; }
-    }
-    return NULL;
-}
-
-static void *receiver_thread(void *arg) {
-    thread_arg *ta = (thread_arg *)arg;
-    ta->ok = 1;
-    for (int i = 0; i < ta->count; i++) {
-        char *buf = NULL; int len = 0;
-        int r = y8_frame_read(ta->fd, &buf, &len);
-        if (r < 0) { ta->ok = 0; free(buf); break; }
-        free(buf);
-    }
-    return NULL;
-}
-
-/* ── Large message (1 MB) ───────────────────────────── */
-
-static void *large_writer(void *arg) {
-    thread_arg *ta = (thread_arg *)arg;
-    int size = 1024 * 1024;
-    char *big = (char *)malloc(size);
-    for (int i = 0; i < size; i++) big[i] = (char)(i & 0xFF);
-    ta->ok = (y8_frame_write(ta->fd, big, size) == 0) ? 1 : 0;
-    free(big);
-    return NULL;
-}
+/* ── Large message (1 MB, fork) ─────────────────────── */
 
 static void test_large_message(void) {
     printf("\n=== Large message ===\n");
@@ -172,13 +140,23 @@ static void test_large_message(void) {
     make_pair(fds);
 
     int size = 1024 * 1024;
-    thread_arg wa = { fds[1], 0, 0 };
-    pthread_t wt;
-    pthread_create(&wt, NULL, large_writer, &wa);
 
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(fds[0]);
+        char *big = (char *)malloc(size);
+        for (int i = 0; i < size; i++) big[i] = (char)(i & 0xFF);
+        int rc = y8_frame_write(fds[1], big, size);
+        free(big);
+        close(fds[1]);
+        _exit(rc == 0 ? 0 : 1);
+    }
+
+    close(fds[1]);
     char *buf = NULL; int len = 0;
     int r = y8_frame_read(fds[0], &buf, &len);
-    pthread_join(wt, NULL);
+    int status;
+    waitpid(pid, &status, 0);
 
     TEST("1MB write+read", r == size && len == size);
 
@@ -193,7 +171,7 @@ static void test_large_message(void) {
     TEST("1MB content intact", match);
 
     free(buf);
-    close(fds[0]); close(fds[1]);
+    close(fds[0]);
 }
 
 /* ── Pipe transport ─────────────────────────────────── */
@@ -203,15 +181,8 @@ static void test_pipe_transport(void) {
     int fds[2];
     make_pair(fds);
 
-    y8_pipe a, b;
-    y8_pipe_init(&a, fds[0], fds[1]);
-    y8_pipe_init(&b, fds[1], fds[0]);
-
-    /* Note: a writes to fds[1], b reads from fds[1] — wrong.
-       For bidirectional, need two socketpairs or cross fds. */
-    /* Actually socketpair gives full-duplex: both fds can read and write */
     y8_pipe sender, receiver;
-    y8_pipe_init(&sender, fds[0], fds[0]);    /* read+write on same fd */
+    y8_pipe_init(&sender, fds[0], fds[0]);
     y8_pipe_init(&receiver, fds[1], fds[1]);
 
     const char *msg = "{type: signal, value: 42}";
@@ -223,7 +194,6 @@ static void test_pipe_transport(void) {
     TEST("pipe content", buf && memcmp(buf, msg, strlen(msg)) == 0);
     free(buf);
 
-    /* Reverse direction */
     const char *reply = "{ok: true}";
     TEST("pipe send reverse", y8_pipe_send(&receiver, reply, (int)strlen(reply)) == 0);
 
@@ -242,7 +212,6 @@ static void test_eof_detection(void) {
     int fds[2];
     make_pair(fds);
 
-    /* Write one message then close writer */
     const char *msg = "last";
     y8_frame_write(fds[1], msg, 4);
     close(fds[1]);
@@ -258,42 +227,27 @@ static void test_eof_detection(void) {
     close(fds[0]);
 }
 
-/* ── Interleaved send/recv (threaded) ───────────────── */
+/* ── Throughput benchmark (fork) ────────────────────── */
 
-static void test_interleaved(void) {
-    printf("\n=== Interleaved send/recv ===\n");
+static void test_throughput(int count) {
+    printf("\n=== Throughput (%d messages) ===\n", count);
     int fds[2];
     make_pair(fds);
 
-    int count = 1000;
-    thread_arg sa = { fds[1], count, 0 };
-    thread_arg ra = { fds[0], count, 0 };
+    const char *msg = "{type:signal,from:sensor1,value:42}";
+    int msglen = (int)strlen(msg);
 
-    pthread_t st, rt;
-    pthread_create(&st, NULL, sender_thread, &sa);
-    pthread_create(&rt, NULL, receiver_thread, &ra);
-    pthread_join(st, NULL);
-    pthread_join(rt, NULL);
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(fds[0]);
+        for (int i = 0; i < count; i++) {
+            if (y8_frame_write(fds[1], msg, msglen) < 0) _exit(1);
+        }
+        close(fds[1]);
+        _exit(0);
+    }
 
-    TEST("interleaved send ok", sa.ok);
-    TEST("interleaved recv ok", ra.ok);
-
-    close(fds[0]); close(fds[1]);
-}
-
-/* ── Throughput benchmark ───────────────────────────── */
-
-static void test_throughput(void) {
-    printf("\n=== Throughput benchmark ===\n");
-    int fds[2];
-    make_pair(fds);
-
-    int count = 1000;
-    thread_arg sa = { fds[1], count, 0 };
-
-    pthread_t st;
-    pthread_create(&st, NULL, sender_thread, &sa);
-
+    close(fds[1]);
     struct timeval t0, t1;
     gettimeofday(&t0, NULL);
 
@@ -304,14 +258,18 @@ static void test_throughput(void) {
     }
 
     gettimeofday(&t1, NULL);
-    pthread_join(st, NULL);
+    int status;
+    waitpid(pid, &status, 0);
 
     double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
     printf("  %d messages in %.1f ms (%.1f K msg/sec)\n",
            count, ms, count / ms);
-    TEST("throughput completes", sa.ok && ms > 0);
 
-    close(fds[0]); close(fds[1]);
+    char tname[64];
+    snprintf(tname, sizeof(tname), "throughput %d", count);
+    TEST(tname, WIFEXITED(status) && WEXITSTATUS(status) == 0 && ms > 0);
+
+    close(fds[0]);
 }
 
 /* ── Oversized message rejected ─────────────────────── */
@@ -321,7 +279,6 @@ static void test_oversize(void) {
     int fds[2];
     make_pair(fds);
 
-    /* Try to write a message larger than Y8_NET_MAX_MSG */
     int big = Y8_NET_MAX_MSG + 1;
     TEST("oversize write rejected", y8_frame_write(fds[1], "x", big) == -1);
 
@@ -333,12 +290,15 @@ static void test_oversize(void) {
 int main(void) {
     test_basic_framing();
     test_binary_safety();
-    test_multiple_messages();
+    test_multiple_messages(10);
+    test_multiple_messages(1000);
+    test_multiple_messages(10000);
     test_large_message();
     test_pipe_transport();
     test_eof_detection();
-    test_interleaved();
-    test_throughput();
+    test_throughput(1000);
+    test_throughput(10000);
+    test_throughput(100000);
     test_oversize();
 
     printf("\n%d/%d tests passed\n", pass, pass + fail);
