@@ -36,6 +36,10 @@ def num(n, repr=None):
         return ("num", n, repr)
     return ("num", n)
 
+def obj(pairs):
+    """Build a QJSON object term from [(key, value), ...] pairs."""
+    return ("object", tuple((k, v) for k, v in pairs))
+
 def lst(items, tail=None):
     """Build a Prolog list from a Python list."""
     result = tail if tail else atom("[]")
@@ -61,6 +65,9 @@ def deep_walk(term, subst):
     if term[0] == "compound":
         args = tuple(deep_walk(a, subst) for a in term[2])
         return (term[0], term[1], args)
+    if term[0] == "object":
+        pairs = tuple((k, deep_walk(v, subst)) for k, v in term[1])
+        return ("object", pairs)
     return term
 
 
@@ -89,6 +96,16 @@ def unify(a, b, subst):
             if s is None:
                 return None
         return s
+    # Object: key-intersection unification
+    if a[0] == "object" and b[0] == "object":
+        s = subst
+        b_dict = {k: v for k, v in b[1]}
+        for k, v in a[1]:
+            if k in b_dict:
+                s = unify(v, b_dict[k], s)
+                if s is None:
+                    return None
+        return s
     return None
 
 
@@ -107,9 +124,18 @@ class Engine:
         self._var_counter = 0
         self._output = []
         self._sends = []
+        self._natives = {}     # host-registered functions: name → fn(args) → result
         self.on_assert = []    # callbacks: fn(head) after a fact is added
         self.on_retract = []   # callbacks: fn(head) after a fact is removed
         self._register_builtins()
+
+    def register_native(self, name, fn):
+        self._natives[name] = fn
+
+    def _fire_react(self, event):
+        """Fire all react(Event) clauses — the observer pattern."""
+        react_goal = compound("react", [event])
+        self._solve([react_goal], {}, 0, lambda s: None)
 
     # ── Clause management ────────────────────────────────────
 
@@ -127,6 +153,7 @@ class Engine:
                 if not removed[1]:
                     for cb in self.on_retract:
                         cb(removed[0])
+                    self._fire_react(compound("retract", [removed[0]]))
                 return True
         return False
 
@@ -144,6 +171,9 @@ class Engine:
         if term[0] == "compound":
             args = tuple(self._rename(a, mapping, base) for a in term[2])
             return (term[0], term[1], args)
+        if term[0] == "object":
+            pairs = tuple((k, self._rename(v, mapping, base)) for k, v in term[1])
+            return ("object", pairs)
         return term
 
     def _fresh_clause(self, clause):
@@ -391,6 +421,7 @@ class Engine:
             eng.clauses.append((term, []))
             for cb in eng.on_assert:
                 cb(term)
+            eng._fire_react(compound("assert", [term]))
             eng._solve(rest, subst, depth + 1, on_sol)
         self.builtins["assert/1"] = _assert
         self.builtins["assertz/1"] = _assert
@@ -407,6 +438,41 @@ class Engine:
                 pass
             eng._solve(rest, subst, depth + 1, on_sol)
         self.builtins["retractall/1"] = _retractall
+
+        # ephemeral/1 — transient event, fires react(Event)
+        def _ephemeral(goal, rest, subst, depth, on_sol):
+            event = deep_walk(goal[2][0], subst)
+            eng._fire_react(event)
+            eng._solve(rest, subst, depth + 1, on_sol)
+        self.builtins["ephemeral/1"] = _ephemeral
+
+        # native/2 — call host-registered function
+        def _native(goal, rest, subst, depth, on_sol):
+            call = deep_walk(goal[2][0], subst)
+            result_var = goal[2][1]
+            name = None
+            args = ()
+            if call[0] == "compound":
+                name = call[1]
+                args = call[2]
+            elif call[0] == "atom":
+                name = call[1]
+            if not name or name not in eng._natives:
+                return  # fail
+            result = eng._natives[name](args)
+            if result is None:
+                result = atom("ok")
+            elif isinstance(result, (int, float)):
+                result = num(result)
+            elif isinstance(result, str):
+                result = atom(result)
+            elif isinstance(result, bool):
+                result = atom("true" if result else "false")
+            # else: assume it's already a term tuple
+            s = unify(result_var, result, subst)
+            if s is not None:
+                eng._solve(rest, s, depth + 1, on_sol)
+        self.builtins["native/2"] = _native
 
         # findall/3
         def _findall(goal, rest, subst, depth, on_sol):
@@ -477,6 +543,9 @@ def term_to_str(term):
         return str(term[1])
     if t == "var":
         return term[1]
+    if t == "object":
+        pairs = [k + ":" + term_to_str(v) for k, v in term[1]]
+        return "{" + ",".join(pairs) + "}"
     if t == "compound":
         f, args = term[1], term[2]
         if f == "." and len(args) == 2:
