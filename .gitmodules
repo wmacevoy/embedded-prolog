@@ -1,0 +1,9 @@
+[submodule "vendor/sqlcipher"]
+	path = vendor/sqlcipher
+	url = git@github.com:sqlcipher/sqlcipher.git
+[submodule "vendor/libressl"]
+	path = vendor/libressl
+	url = git@github.com:libressl/portable.git
+[submodule "vendor/quickjs"]
+	path = vendor/quickjs
+	url = git@github.com:bellard/quickjs.git
