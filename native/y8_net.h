@@ -54,4 +54,35 @@ int y8_pipe_recv(y8_pipe *p, char **data, int *len);
 /* Close both fds. */
 void y8_pipe_close(y8_pipe *p);
 
+/* ── TCP transport ───────────────────────────────────── */
+/* Plain TCP.  Uses framing layer for message boundaries.  */
+/* For TLS: wrap the fd with LibreSSL SSL_read/SSL_write. */
+
+/* Listen on a port.  Returns server fd, -1 on error. */
+int y8_tcp_listen(int port);
+
+/* Accept a connection.  Blocks.  Returns connection fd. */
+int y8_tcp_accept(int server_fd);
+
+/* Connect to host:port.  Returns connection fd, -1 on error. */
+int y8_tcp_connect(const char *host, int port);
+
+/* Send/recv use y8_frame_write/y8_frame_read on the fd. */
+
+/* ── UDP transport ───────────────────────────────────── */
+/* Each datagram = one QJSON message.  No framing needed. */
+/* Max payload: ~65507 bytes (UDP limit minus headers).   */
+
+/* Open a UDP socket, optionally bound to port.
+   port=0 for ephemeral (client).  Returns socket fd. */
+int y8_udp_open(int port);
+
+/* Send a QJSON message as one UDP datagram. */
+int y8_udp_send(int fd, const char *host, int port,
+                const char *data, int len);
+
+/* Receive a QJSON message.  Caller frees *data.
+   Returns payload length, -1 on error. */
+int y8_udp_recv(int fd, char **data, int *len);
+
 #endif /* Y8_NET_H */

@@ -4,10 +4,14 @@
  * Zero dependencies: POSIX only (read/write/close).
  * ============================================================ */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "y8_net.h"
 
 /* ── Helpers: full read/write with retry on EINTR ──── */
@@ -114,4 +118,99 @@ void y8_pipe_close(y8_pipe *p) {
     if (p->write_fd >= 0 && p->write_fd != p->read_fd) {
         close(p->write_fd); p->write_fd = -1;
     }
+}
+
+/* ── TCP transport ─────────────────────────────────── */
+
+int y8_tcp_listen(int port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd); return -1;
+    }
+    if (listen(fd, 16) < 0) {
+        close(fd); return -1;
+    }
+    return fd;
+}
+
+int y8_tcp_accept(int server_fd) {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    return accept(server_fd, (struct sockaddr *)&addr, &len);
+}
+
+int y8_tcp_connect(const char *host, int port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        close(fd); return -1;
+    }
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd); return -1;
+    }
+    return fd;
+}
+
+/* ── UDP transport ─────────────────────────────────── */
+
+int y8_udp_open(int port) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port); /* 0 = kernel picks */
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd); return -1;
+    }
+    return fd;
+}
+
+int y8_udp_send(int fd, const char *host, int port,
+                const char *data, int len)
+{
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, host, &addr.sin_addr);
+
+    ssize_t n = sendto(fd, data, len, 0,
+                       (struct sockaddr *)&addr, sizeof(addr));
+    return n == len ? 0 : -1;
+}
+
+int y8_udp_recv(int fd, char **data, int *len) {
+    char buf[65536];
+    ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, NULL, NULL);
+    if (n < 0) return -1;
+
+    *data = (char *)malloc(n);
+    if (!*data) return -1;
+    memcpy(*data, buf, n);
+    *len = (int)n;
+    return (int)n;
 }

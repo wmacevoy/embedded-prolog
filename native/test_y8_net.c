@@ -15,6 +15,9 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/select.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "y8_net.h"
 
 static int pass = 0, fail = 0;
@@ -285,9 +288,114 @@ static void test_oversize(void) {
     close(fds[0]); close(fds[1]);
 }
 
+/* ── TCP transport (fork: client child, server parent) ── */
+
+static void test_tcp(int count) {
+    printf("\n=== TCP %d messages ===\n", count);
+
+    /* Listen on port 0 — kernel picks an ephemeral port */
+    int server_fd = y8_tcp_listen(0);
+    TEST("tcp listen", server_fd >= 0);
+    if (server_fd < 0) return;
+
+    /* Get the actual port */
+    struct sockaddr_in saddr;
+    socklen_t slen = sizeof(saddr);
+    getsockname(server_fd, (struct sockaddr *)&saddr, &slen);
+    int port = ntohs(saddr.sin_port);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Child: client — connect and send */
+        close(server_fd);
+        int cfd = y8_tcp_connect("127.0.0.1", port);
+        if (cfd < 0) _exit(1);
+        for (int i = 0; i < count; i++) {
+            char msg[32];
+            int n = snprintf(msg, sizeof(msg), "tcp-%d", i);
+            if (y8_frame_write(cfd, msg, n) < 0) { close(cfd); _exit(1); }
+        }
+        close(cfd);
+        _exit(0);
+    }
+
+    /* Parent: server — accept and read */
+    int conn = y8_tcp_accept(server_fd);
+    TEST("tcp accept", conn >= 0);
+    close(server_fd);
+
+    int ok = 1;
+    for (int i = 0; i < count; i++) {
+        char *buf = NULL; int len = 0;
+        int r = y8_frame_read(conn, &buf, &len);
+        if (r < 0) { ok = 0; free(buf); break; }
+        char expected[32];
+        int elen = snprintf(expected, sizeof(expected), "tcp-%d", i);
+        if (r != elen || memcmp(buf, expected, elen) != 0) ok = 0;
+        free(buf);
+    }
+    close(conn);
+    int status;
+    waitpid(pid, &status, 0);
+
+    char tname[64];
+    snprintf(tname, sizeof(tname), "tcp %d round-trip", count);
+    TEST(tname, ok && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+/* ── UDP transport (fork: sender child, receiver parent) ── */
+
+static void test_udp(int count) {
+    printf("\n=== UDP %d messages ===\n", count);
+
+    /* Receiver binds to ephemeral port */
+    int recv_fd = y8_udp_open(0);
+    TEST("udp open", recv_fd >= 0);
+    if (recv_fd < 0) return;
+
+    struct sockaddr_in addr;
+    socklen_t alen = sizeof(addr);
+    getsockname(recv_fd, (struct sockaddr *)&addr, &alen);
+    int port = ntohs(addr.sin_port);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Child: send */
+        close(recv_fd);
+        int send_fd = y8_udp_open(0);
+        if (send_fd < 0) _exit(1);
+        for (int i = 0; i < count; i++) {
+            char msg[32];
+            int n = snprintf(msg, sizeof(msg), "udp-%d", i);
+            if (y8_udp_send(send_fd, "127.0.0.1", port, msg, n) < 0)
+                { close(send_fd); _exit(1); }
+        }
+        close(send_fd);
+        _exit(0);
+    }
+
+    /* Parent: receive */
+    int got = 0;
+    for (int i = 0; i < count; i++) {
+        char *buf = NULL; int len = 0;
+        int r = y8_udp_recv(recv_fd, &buf, &len);
+        if (r > 0) got++;
+        free(buf);
+    }
+    close(recv_fd);
+    int status;
+    waitpid(pid, &status, 0);
+
+    /* UDP may drop packets — accept if we got most of them */
+    char tname[64];
+    snprintf(tname, sizeof(tname), "udp %d received %d", count, got);
+    TEST(tname, got == count && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
 /* ── Main ────────────────────────────────────────────── */
 
 int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
     test_basic_framing();
     test_binary_safety();
     test_multiple_messages(10);
@@ -300,6 +408,11 @@ int main(void) {
     test_throughput(10000);
     test_throughput(100000);
     test_oversize();
+    test_tcp(10);
+    test_tcp(1000);
+    test_tcp(10000);
+    test_udp(10);
+    test_udp(1000);
 
     printf("\n%d/%d tests passed\n", pass, pass + fail);
     return fail ? 1 : 0;
