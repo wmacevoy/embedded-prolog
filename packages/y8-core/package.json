@@ -1,0 +1,12 @@
+{
+  "name": "y8-core",
+  "version": "0.1.0",
+  "description": "Canonical interval projection via libbf — y8 numeric foundation",
+  "main": "y8_core.js",
+  "files": ["y8_core.js", "y8_core.py", "Makefile"],
+  "scripts": {
+    "build": "make",
+    "test": "make test"
+  },
+  "license": "MIT"
+}
