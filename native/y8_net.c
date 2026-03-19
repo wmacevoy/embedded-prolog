@@ -24,6 +24,7 @@
 #ifdef Y8_HAS_TLS
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+struct y8_tls_ctx { SSL_CTX *ctx; };
 #endif
 #include "y8_net.h"
 
@@ -294,8 +295,6 @@ void y8_tcp_conn_close(y8_tcp_conn *c) {
 /* ── TLS context + SSL framing ─────────────────────── */
 
 #ifdef Y8_HAS_TLS
-
-struct y8_tls_ctx { SSL_CTX *ctx; };
 
 static int _tls_inited = 0;
 static void _tls_init(void) {
