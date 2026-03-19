@@ -374,22 +374,91 @@ static void test_udp(int count) {
         _exit(0);
     }
 
-    /* Parent: receive */
+    /* Parent: receive with timeout (UDP drops are OK) */
     int got = 0;
+    struct timeval tv = {2, 0}; /* 2 second total timeout */
+    setsockopt(recv_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     for (int i = 0; i < count; i++) {
         char *buf = NULL; int len = 0;
         int r = y8_udp_recv(recv_fd, &buf, &len);
         if (r > 0) got++;
+        else { free(buf); break; } /* timeout = done */
         free(buf);
     }
     close(recv_fd);
     int status;
     waitpid(pid, &status, 0);
 
-    /* UDP may drop packets — accept if we got most of them */
+    /* UDP may drop — accept if we got at least 90% */
     char tname[64];
-    snprintf(tname, sizeof(tname), "udp %d received %d", count, got);
-    TEST(tname, got == count && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    snprintf(tname, sizeof(tname), "udp %d received %d (>=%d)", count, got, count*9/10);
+    TEST(tname, got >= count * 9 / 10 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+/* ── TCP reconnect (server dies, client reconnects) ───── */
+
+static void test_tcp_reconnect(void) {
+    printf("\n=== TCP reconnect ===\n");
+
+    int server_fd = y8_tcp_listen(0);
+    TEST("reconnect listen", server_fd >= 0);
+    if (server_fd < 0) return;
+
+    struct sockaddr_in saddr;
+    socklen_t slen = sizeof(saddr);
+    getsockname(server_fd, (struct sockaddr *)&saddr, &slen);
+    int port = ntohs(saddr.sin_port);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Child: client with auto-reconnect */
+        close(server_fd);
+        y8_tcp_conn conn;
+        y8_tcp_conn_init(&conn, "127.0.0.1", port);
+
+        /* Send 3 messages, server will die after 2 and restart */
+        const char *m1 = "before";
+        y8_tcp_conn_send(&conn, m1, 6);
+        y8_tcp_conn_send(&conn, m1, 6);
+
+        /* Server kills connection here — _y8_tcp_alive detects it */
+        struct timeval tv = {0, 50000}; select(0,0,0,0,&tv); /* 50ms for RST */
+        const char *m2 = "after";
+        y8_tcp_conn_send(&conn, m2, 5);
+
+        y8_tcp_conn_close(&conn);
+        _exit(0);
+    }
+
+    /* Parent: server — accept, read 2, kill, re-accept, read 1 */
+    int conn1 = y8_tcp_accept(server_fd);
+    char *buf = NULL; int len = 0;
+
+    int r1 = y8_frame_read(conn1, &buf, &len);
+    TEST("reconnect msg 1", r1 == 6 && memcmp(buf, "before", 6) == 0);
+    free(buf); buf = NULL;
+
+    int r2 = y8_frame_read(conn1, &buf, &len);
+    TEST("reconnect msg 2", r2 == 6);
+    free(buf); buf = NULL;
+
+    /* Kill the connection — client will get an error on next send */
+    close(conn1);
+
+    /* Accept the reconnection */
+    int conn2 = y8_tcp_accept(server_fd);
+    TEST("reconnect re-accept", conn2 >= 0);
+
+    /* Read at least one "after" message on the new connection */
+    int r3 = y8_frame_read(conn2, &buf, &len);
+    TEST("reconnect msg after reconnect", r3 == 5 && buf && memcmp(buf, "after", 5) == 0);
+    free(buf);
+
+    close(conn2);
+    close(server_fd);
+    int status;
+    waitpid(pid, &status, 0);
+    TEST("reconnect child exit ok", WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
 /* ── Main ────────────────────────────────────────────── */
@@ -413,6 +482,7 @@ int main(void) {
     test_tcp(10000);
     test_udp(10);
     test_udp(1000);
+    test_tcp_reconnect();
 
     printf("\n%d/%d tests passed\n", pass, pass + fail);
     return fail ? 1 : 0;

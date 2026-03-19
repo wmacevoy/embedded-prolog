@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -166,6 +167,74 @@ int y8_tcp_connect(const char *host, int port) {
         close(fd); return -1;
     }
     return fd;
+}
+
+/* ── TCP with auto-reconnect ───────────────────────── */
+
+static void _y8_sleep_ms(int ms) {
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    select(0, NULL, NULL, NULL, &tv);
+}
+
+static int _y8_tcp_reconnect(y8_tcp_conn *c) {
+    if (c->fd >= 0) { close(c->fd); c->fd = -1; }
+    while (1) {
+        int delay = 1 << (c->tries < 12 ? c->tries : 12);
+        if (delay > Y8_RECONNECT_MAX_MS) delay = Y8_RECONNECT_MAX_MS;
+        _y8_sleep_ms(delay);
+        c->fd = y8_tcp_connect(c->host, c->port);
+        if (c->fd >= 0) { c->tries = 0; return 0; }
+        if (c->tries < 12) c->tries++;
+    }
+}
+
+void y8_tcp_conn_init(y8_tcp_conn *c, const char *host, int port) {
+    c->fd = -1;
+    c->port = port;
+    c->tries = 0;
+    snprintf(c->host, sizeof(c->host), "%s", host);
+    c->fd = y8_tcp_connect(host, port);
+    /* If initial connect fails, first send/recv will reconnect */
+}
+
+static int _y8_tcp_alive(int fd) {
+    int err = 0;
+    socklen_t elen = sizeof(err);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) < 0) return 0;
+    if (err != 0) return 0;
+    /* Also try a non-blocking peek to detect RST */
+    char tmp;
+    int n = (int)recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (n == 0) return 0; /* EOF = peer closed */
+    /* n < 0 with EAGAIN/EWOULDBLOCK = still alive, no data */
+    if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return 0;
+    return 1;
+}
+
+int y8_tcp_conn_send(y8_tcp_conn *c, const char *data, int len) {
+    if (c->fd < 0 || !_y8_tcp_alive(c->fd)) _y8_tcp_reconnect(c);
+    int r = y8_frame_write(c->fd, data, len);
+    if (r < 0) {
+        _y8_tcp_reconnect(c);
+        r = y8_frame_write(c->fd, data, len);
+    }
+    return r;
+}
+
+int y8_tcp_conn_recv(y8_tcp_conn *c, char **data, int *len) {
+    if (c->fd < 0) _y8_tcp_reconnect(c);
+    int r = y8_frame_read(c->fd, data, len);
+    if (r < 0) {
+        _y8_tcp_reconnect(c);
+        r = y8_frame_read(c->fd, data, len);
+    }
+    return r;
+}
+
+void y8_tcp_conn_close(y8_tcp_conn *c) {
+    if (c->fd >= 0) { close(c->fd); c->fd = -1; }
 }
 
 /* ── UDP transport ─────────────────────────────────── */

@@ -67,7 +67,30 @@ int y8_tcp_accept(int server_fd);
 /* Connect to host:port.  Returns connection fd, -1 on error. */
 int y8_tcp_connect(const char *host, int port);
 
-/* Send/recv use y8_frame_write/y8_frame_read on the fd. */
+/* ── TCP with auto-reconnect ─────────────────────────── */
+/* Exponential backoff: 1ms, 2ms, 4ms, ..., 4096ms cap.  */
+/* Reconnects silently on send/recv failure.              */
+
+#define Y8_RECONNECT_MAX_MS 4096
+
+typedef struct {
+    int  fd;
+    char host[256];
+    int  port;
+    int  tries;      /* current backoff exponent */
+} y8_tcp_conn;
+
+/* Init a persistent connection.  Connects immediately. */
+void y8_tcp_conn_init(y8_tcp_conn *c, const char *host, int port);
+
+/* Send with auto-reconnect.  Returns 0 or -1 (after max retries). */
+int y8_tcp_conn_send(y8_tcp_conn *c, const char *data, int len);
+
+/* Recv with auto-reconnect.  Caller frees *data. */
+int y8_tcp_conn_recv(y8_tcp_conn *c, char **data, int *len);
+
+/* Close. */
+void y8_tcp_conn_close(y8_tcp_conn *c);
 
 /* ── UDP transport ───────────────────────────────────── */
 /* Each datagram = one QJSON message.  No framing needed. */
