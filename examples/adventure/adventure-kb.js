@@ -1,27 +1,23 @@
 // ============================================================
 // Adventure Game Knowledge Base
 //
-// "The Obsidian Tower" — a small text adventure driven entirely
-// by Prolog inference.  The world state lives in the clause
-// database via assert/retract.  The UI queries the engine for
-// descriptions, available actions, and processes commands.
+// "The Obsidian Tower" — a text adventure driven by
+// ephemeral/react. Commands are events, reactions are game logic.
 // ============================================================
 
-import { loadString } from "../../src/loader.js";
-
-const ADVENTURE_KB = `
+export const ADVENTURE_KB = `
 % ============================================
 % The Obsidian Tower — Adventure in Prolog
 % ============================================
 
-% --- Room descriptions (static facts) ---
+% --- Room descriptions ---
 room_desc(courtyard, 'A crumbling courtyard. Moonlight catches on shattered flagstones. A massive obsidian tower looms to the north. An iron gate bars the way east.').
 room_desc(tower_base, 'The base of the tower. Spiral stairs wind upward into darkness. Strange glyphs pulse faintly on the walls. A doorway leads south to the courtyard.').
 room_desc(tower_top, 'The top of the tower. Wind howls through empty windows. A stone pedestal stands in the center, covered in dust. Stairs lead down.').
 room_desc(garden, 'An overgrown garden behind a rusted iron gate. Phosphorescent mushrooms glow among the weeds. A stone well sits in the corner. The courtyard is to the west.').
 room_desc(well_chamber, 'You descend into the well. Cool air rises. A narrow tunnel leads into a hidden chamber. Jewels glitter in the walls. A ladder leads up to the garden.').
 
-% --- Connections (bidirectional) ---
+% --- Connections ---
 connection(courtyard, north, tower_base).
 connection(tower_base, south, courtyard).
 connection(tower_base, up, tower_top).
@@ -31,13 +27,13 @@ connection(garden, west, courtyard).
 connection(garden, down, well_chamber).
 connection(well_chamber, up, garden).
 
-% --- Items (static descriptions) ---
+% --- Items ---
 item_desc(rusty_key, 'A heavy iron key, flecked with rust.').
 item_desc(crystal_orb, 'A shimmering crystal orb that hums with inner light.').
-item_desc(old_scroll, 'A brittle scroll. The text reads: ''Place the orb upon the pedestal to open the way.''').
+item_desc(old_scroll, 'A brittle scroll. The text reads: Place the orb upon the pedestal to open the way.').
 item_desc(glowing_gem, 'A gem that pulses with deep violet light. It feels warm.').
 
-% --- Dynamic state (initial assertions) ---
+% --- Initial state ---
 player_at(courtyard).
 item_at(rusty_key, tower_base).
 item_at(old_scroll, tower_top).
@@ -49,77 +45,68 @@ locked(garden).
 npc_at(raven, tower_top).
 npc_desc(raven, 'A large raven perches on the windowsill, watching you with knowing eyes.').
 
-% --- NPC dialogue (context-sensitive) ---
-npc_talk(raven, 'The raven caws: ''You found it! The orb... place it on the pedestal. Quickly, before the tower sleeps again.''') :-
+npc_talk(raven, 'The raven caws: The orb... place it on the pedestal. Quickly!') :-
     holding(crystal_orb).
-npc_talk(raven, 'The raven tilts its head: ''The scroll speaks of the deep places. Have you tried the well in the garden?''') :-
+npc_talk(raven, 'The raven tilts its head: The scroll speaks of the deep places. Try the well.') :-
     holding(old_scroll), not(holding(crystal_orb)).
-npc_talk(raven, 'The raven caws: ''Seek the key. The garden holds secrets beneath.''') :-
+npc_talk(raven, 'The raven caws: Seek the key. The garden holds secrets beneath.') :-
     not(holding(old_scroll)), not(holding(crystal_orb)).
 
-% --- Rules ---
-items_here(Room, Items) :-
-    findall(I, item_at(I, Room), Items).
+% --- Queries ---
+items_here(Room, Items) :- findall(I, item_at(I, Room), Items).
+npcs_here(Room, NPCs) :- findall(N, npc_at(N, Room), NPCs).
+exits(Room, Dirs) :- findall(D, connection(Room, D, _To), Dirs).
+inventory(Items) :- findall(I, holding(I), Items).
+game_won :- orb_placed.
 
-npcs_here(Room, NPCs) :-
-    findall(N, npc_at(N, Room), NPCs).
+% --- React to player commands ---
 
-exits(Room, Dirs) :-
-    findall(D, connection(Room, D, _To), Dirs).
-
-inventory(Items) :-
-    findall(I, holding(I), Items).
-
-can_go(Dir, Dest) :-
+react({action: go, dir: Dir}) :-
     player_at(Here),
     connection(Here, Dir, Dest),
-    not(locked(Dest)).
-
-can_go_locked(Dir, Dest) :-
-    player_at(Here),
-    connection(Here, Dir, Dest),
-    locked(Dest).
-
-% --- Actions ---
-do_go(Dir) :-
-    can_go(Dir, Dest),
-    player_at(Here),
+    not(locked(Dest)),
     retract(player_at(Here)),
-    assert(player_at(Dest)).
+    assert(player_at(Dest)),
+    send(ui, {event: moved, to: Dest}).
 
-do_take(Item) :-
+react({action: go, dir: Dir}) :-
+    player_at(Here),
+    connection(Here, Dir, Dest),
+    locked(Dest),
+    send(ui, {event: blocked, dir: Dir, reason: locked}).
+
+react({action: take, item: Item}) :-
     player_at(Here),
     item_at(Item, Here),
     retract(item_at(Item, Here)),
-    assert(holding(Item)).
+    assert(holding(Item)),
+    send(ui, {event: took, item: Item}).
 
-do_drop(Item) :-
+react({action: drop, item: Item}) :-
     holding(Item),
     player_at(Here),
     retract(holding(Item)),
-    assert(item_at(Item, Here)).
+    assert(item_at(Item, Here)),
+    send(ui, {event: dropped, item: Item}).
 
-do_unlock(Dir) :-
+react({action: unlock, dir: Dir}) :-
     holding(rusty_key),
     player_at(Here),
     connection(Here, Dir, Dest),
     locked(Dest),
-    retract(locked(Dest)).
+    retract(locked(Dest)),
+    send(ui, {event: unlocked, dir: Dir}).
 
-do_use_orb() :-
+react({action: use_orb}) :-
     player_at(tower_top),
     holding(crystal_orb),
     retract(holding(crystal_orb)),
-    assert(orb_placed()).
+    assert(orb_placed),
+    send(ui, {event: won}).
 
-game_won() :- orb_placed().
+react({action: talk, npc: NPC}) :-
+    player_at(Here),
+    npc_at(NPC, Here),
+    npc_talk(NPC, Msg),
+    send(ui, {event: dialogue, npc: NPC, text: Msg}).
 `;
-
-export function buildAdventureKB(PrologEngine) {
-  const engine = new PrologEngine();
-  loadString(engine, ADVENTURE_KB);
-  return engine;
-}
-
-// ── Prolog source for display ──────────────────────────────
-export const ADVENTURE_PROLOG_SOURCE = ADVENTURE_KB;

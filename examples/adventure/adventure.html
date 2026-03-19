@@ -470,10 +470,13 @@
 <script type="module">
 // ── Imports ─────────────────────────────────────────────────
 import { PrologEngine, listToArray } from "../../src/prolog-engine.js";
-import { buildAdventureKB, ADVENTURE_PROLOG_SOURCE } from "./adventure-kb.js";
+import { loadString } from "../../src/loader.js";
+import { ADVENTURE_KB } from "./adventure-kb.js";
 
 const at = PrologEngine.atom, v = PrologEngine.variable, c = PrologEngine.compound, n = PrologEngine.num;
+const ob = PrologEngine.object;
 function termStr(t) { return t ? (t.type === "atom" ? t.name : t.type === "num" ? String(t.value) : "?") : "?"; }
+function buildEngine() { var e = new PrologEngine(); loadString(e, ADVENTURE_KB); return e; }
 
 // Room icons
 const roomIcons = { courtyard: "🏚", tower_base: "🗼", tower_top: "🌙", garden: "🌿", well_chamber: "💎" };
@@ -486,7 +489,7 @@ import { render } from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/web/+esm";
 import h from "https://cdn.jsdelivr.net/npm/solid-js@1.9.5/h/+esm";
 
 function App() {
-  let engine = buildAdventureKB(PrologEngine);
+  let engine = buildEngine();
   const [gen, setGen] = createSignal(0);
   const bump = () => setGen(g => g + 1);
   const [log, setLog] = createSignal([]);
@@ -505,64 +508,50 @@ function App() {
   const inventory = createMemo(() => { gen(); const r = engine.queryFirst(c("inventory", [v("I")])); return r ? listToArray(r.args[1]).map(t => t.name) : []; });
   const exits = createMemo(() => {
     gen();
-    const unlocked = engine.query(c("can_go", [v("D"), v("Dest")]));
-    const locked = engine.query(c("can_go_locked", [v("D"), v("Dest")]));
-    return {
-      open: unlocked.map(r => ({ dir: r.args[0].name, dest: r.args[1].name })),
-      locked: locked.map(r => ({ dir: r.args[0].name, dest: r.args[1].name })),
-    };
+    const room = currentRoom();
+    const conns = engine.query(c("connection", [at(room), v("D"), v("Dest")]));
+    return conns.map(r => ({
+      dir: r.args[1].name,
+      dest: r.args[2].name,
+      locked: engine.queryFirst(c("locked", [r.args[2]])) !== null
+    }));
   });
-  const gameWon = createMemo(() => { gen(); return engine.queryFirst(c("game_won", [])) !== null; });
+  const gameWon = createMemo(() => { gen(); return engine.queryFirst(at("game_won")) !== null; });
   const canUseOrb = createMemo(() => { gen(); return currentRoom() === "tower_top" && inventory().includes("crystal_orb"); });
 
   createEffect(() => { log(); setTimeout(() => logEnd?.scrollIntoView({ behavior: "smooth" }), 50); });
 
-  // ── Actions ───────────────────────────────────────────────
-  function doGo(dir) {
-    addLog(`?- do_go(${dir}).`, "query");
-    const r = engine.queryFirst(c("do_go", [at(dir)]));
+  // ── One action handler: ephemeral → react → sends ─────
+  function doAction(pairs, label) {
+    addLog(`?- ephemeral(${label}).`, "query");
+    engine._sends = [];
+    engine.queryFirst(c("ephemeral", [ob(pairs)]));
+    var sends = engine._sends.slice();
     bump();
     setTalkingTo(null); setInspecting(null);
-    if (r) addLog(`Moved ${dir}.`, "success");
-    else addLog(`Cannot go ${dir}.`, "fail");
+    for (var s of sends) {
+      var fact = s.fact;
+      if (fact.type === "object") {
+        var ev = {};
+        for (var p of fact.pairs) ev[p.key] = p.value;
+        if (ev.event?.name === "moved") addLog(`Moved to ${ev.to?.name}.`, "success");
+        else if (ev.event?.name === "blocked") addLog(`The way ${ev.dir?.name} is locked.`, "fail");
+        else if (ev.event?.name === "took") addLog(`Picked up ${ev.item?.name?.replace(/_/g," ")}.`, "success");
+        else if (ev.event?.name === "dropped") addLog(`Dropped ${ev.item?.name?.replace(/_/g," ")}.`, "info");
+        else if (ev.event?.name === "unlocked") addLog(`Unlocked the gate!`, "success");
+        else if (ev.event?.name === "won") addLog(`Placed the crystal orb on the pedestal!`, "success");
+        else if (ev.event?.name === "dialogue") { setTalkingTo(ev.text?.name || "..."); addLog(`Spoke with ${ev.npc?.name}.`, "success"); }
+      }
+    }
+    if (sends.length === 0) addLog("Nothing happened.", "fail");
   }
 
-  function doTake(item) {
-    addLog(`?- do_take(${item}).`, "query");
-    engine.queryFirst(c("do_take", [at(item)]));
-    bump();
-    setInspecting(null);
-    addLog(`Picked up ${item.replace(/_/g, " ")}.`, "success");
-  }
-
-  function doDrop(item) {
-    addLog(`?- do_drop(${item}).`, "query");
-    engine.queryFirst(c("do_drop", [at(item)]));
-    bump();
-    addLog(`Dropped ${item.replace(/_/g, " ")}.`, "info");
-  }
-
-  function doUnlock(dir) {
-    addLog(`?- do_unlock(${dir}).`, "query");
-    const r = engine.queryFirst(c("do_unlock", [at(dir)]));
-    bump();
-    if (r) addLog(`Unlocked the gate to the ${dir}!`, "success");
-    else addLog("You don't have the right key.", "fail");
-  }
-
-  function doTalk(npc) {
-    addLog(`?- npc_talk(${npc}, Text).`, "query");
-    const r = engine.queryFirst(c("npc_talk", [at(npc), v("T")]));
-    if (r) { setTalkingTo(r.args[1].name); addLog(`Spoke with ${npc}.`, "success"); }
-    else { setTalkingTo(null); addLog(`${npc} says nothing.`, "info"); }
-  }
-
-  function doUseOrb() {
-    addLog("?- do_use_orb.", "query");
-    engine.queryFirst(c("do_use_orb", []));
-    bump();
-    addLog("Placed the crystal orb on the pedestal!", "success");
-  }
+  function doGo(dir) { doAction([{key:"action",value:at("go")},{key:"dir",value:at(dir)}], `go(${dir})`); }
+  function doTake(item) { doAction([{key:"action",value:at("take")},{key:"item",value:at(item)}], `take(${item})`); }
+  function doDrop(item) { doAction([{key:"action",value:at("drop")},{key:"item",value:at(item)}], `drop(${item})`); }
+  function doUnlock(dir) { doAction([{key:"action",value:at("unlock")},{key:"dir",value:at(dir)}], `unlock(${dir})`); }
+  function doTalk(npc) { doAction([{key:"action",value:at("talk")},{key:"npc",value:at(npc)}], `talk(${npc})`); }
+  function doUseOrb() { doAction([{key:"action",value:at("use_orb")}], "use_orb"); }
 
   function doInspect(item) {
     const r = engine.queryFirst(c("item_desc", [at(item), v("D")]));
@@ -570,7 +559,7 @@ function App() {
   }
 
   function restart() {
-    engine = buildAdventureKB(PrologEngine);
+    engine = buildEngine();
     setGen(0); bump();
     setLog([]); setTalkingTo(null); setInspecting(null);
     addLog("% A new journey begins...", "info");
@@ -579,7 +568,7 @@ function App() {
   const prettyRoom = (name) => name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   const prettyItem = (name) => name.replace(/_/g, " ");
 
-  const PROLOG_SRC = ADVENTURE_PROLOG_SOURCE.trim();
+  const PROLOG_SRC = ADVENTURE_KB.trim();
 
   // ── Render ────────────────────────────────────────────────
   return h("div", { class: "container" },
@@ -642,12 +631,11 @@ function App() {
 
         // Action bar
         h("div", { class: "actions-bar" },
-          // Movement
-          () => exits().open.map(e =>
+          // Exits
+          () => exits().filter(e => !e.locked).map(e =>
             h("button", { class: "action-btn move", onclick: () => doGo(e.dir) }, dirLabels[e.dir] || e.dir)
           ),
-          // Locked exits
-          () => exits().locked.map(e =>
+          () => exits().filter(e => e.locked).map(e =>
             h("button", { class: "action-btn locked", onclick: () => {
               if (inventory().includes("rusty_key")) doUnlock(e.dir);
               else addLog("The gate is locked. You need a key.", "fail");
