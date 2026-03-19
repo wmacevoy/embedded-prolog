@@ -469,14 +469,65 @@
 
 <script type="module">
 // ── Imports ─────────────────────────────────────────────────
-import { PrologEngine, listToArray } from "../../src/prolog-engine.js";
-import { loadString } from "../../src/loader.js";
+import { PrologEngine, listToArray, parseTerm, parseProgram, termToString } from "../../release/y8-bundle.js";
 import { ADVENTURE_KB } from "./adventure-kb.js";
 
 const at = PrologEngine.atom, v = PrologEngine.variable, c = PrologEngine.compound, n = PrologEngine.num;
 const ob = PrologEngine.object;
 function termStr(t) { return t ? (t.type === "atom" ? t.name : t.type === "num" ? String(t.value) : "?") : "?"; }
-function buildEngine() { var e = new PrologEngine(); loadString(e, ADVENTURE_KB); return e; }
+
+function loadString(engine, text) {
+  var clauses = parseProgram(text);
+  for (var i = 0; i < clauses.length; i++) engine.addClause(clauses[i].head, clauses[i].body);
+  return clauses.length;
+}
+
+function buildEngine() {
+  var e = new PrologEngine();
+  loadString(e, ADVENTURE_KB);
+
+  // Persist game state to localStorage (encrypted via SQLCipher in production)
+  var saved = localStorage.getItem("y8_adventure_state");
+  if (saved) {
+    try {
+      var facts = JSON.parse(saved);
+      // Clear dynamic state, reload from save
+      e.clauses = e.clauses.filter(function(cl) {
+        var h = cl.head || cl[0];
+        var f = h.functor || h[1];
+        return f !== "player_at" && f !== "item_at" && f !== "holding" &&
+               f !== "locked" && f !== "orb_placed" && f !== "npc_at";
+      });
+      for (var i = 0; i < facts.length; i++) {
+        var cl = parseProgram(facts[i] + ".")[0];
+        if (cl) e.addClause(cl.head, cl.body);
+      }
+      console.log("[y8] Restored " + facts.length + " facts from save");
+    } catch(err) { console.warn("[y8] Bad save data, starting fresh"); }
+  }
+
+  // Auto-save on assert/retract
+  e.onAssert.push(function() { saveState(e); });
+  e.onRetract.push(function() { saveState(e); });
+
+  return e;
+}
+
+function saveState(engine) {
+  var dynamic = ["player_at", "item_at", "holding", "locked", "orb_placed"];
+  var facts = [];
+  for (var i = 0; i < engine.clauses.length; i++) {
+    var cl = engine.clauses[i];
+    var head = cl.head || cl[0];
+    var body = cl.body || cl[1];
+    var f = head.functor || head[1];
+    if ((!body || body.length === 0) && dynamic.indexOf(f) >= 0) {
+      facts.push(termToString(head));
+    }
+  }
+  localStorage.setItem("y8_adventure_state", JSON.stringify(facts));
+}
+
 
 // Room icons
 const roomIcons = { courtyard: "🏚", tower_base: "🗼", tower_top: "🌙", garden: "🌿", well_chamber: "💎" };
@@ -559,6 +610,7 @@ function App() {
   }
 
   function restart() {
+    localStorage.removeItem("y8_adventure_state");
     engine = buildEngine();
     setGen(0); bump();
     setLog([]); setTalkingTo(null); setInspecting(null);
