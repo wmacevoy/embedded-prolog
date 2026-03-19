@@ -84,6 +84,9 @@ y8_tls_ctx *y8_tls_client(const char *ca_file); /* NULL = no verify */
 /* Free TLS context. */
 void y8_tls_free(y8_tls_ctx *ctx);
 
+/* Create a new SSL connection from context (for direct use). */
+void *y8_tls_ssl_new(y8_tls_ctx *ctx, int fd);
+
 typedef struct {
     int          fd;
     char         host[256];

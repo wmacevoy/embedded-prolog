@@ -18,6 +18,7 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "y8_net.h"
 
 #ifdef __has_include
@@ -402,6 +403,55 @@ static void test_udp(int count) {
     TEST(tname, got >= count * 9 / 10 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
+/* ── TCP throughput (fork) ───────────────────────────── */
+
+static void test_tcp_throughput(int count) {
+    printf("\n=== TCP throughput (%d messages) ===\n", count);
+    int server_fd = y8_tcp_listen(0);
+    if (server_fd < 0) { TEST("tcp listen", 0); return; }
+    struct sockaddr_in saddr;
+    socklen_t slen = sizeof(saddr);
+    getsockname(server_fd, (struct sockaddr *)&saddr, &slen);
+    int port = ntohs(saddr.sin_port);
+
+    const char *msg = "{type:signal,from:sensor1,value:42}";
+    int msglen = (int)strlen(msg);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(server_fd);
+        int cfd = y8_tcp_connect("127.0.0.1", port);
+        if (cfd < 0) _exit(1);
+        for (int i = 0; i < count; i++) {
+            if (y8_frame_write(cfd, msg, msglen) < 0) { close(cfd); _exit(1); }
+        }
+        close(cfd);
+        _exit(0);
+    }
+
+    int conn = y8_tcp_accept(server_fd);
+    close(server_fd);
+
+    struct timeval t0, t1;
+    gettimeofday(&t0, NULL);
+    for (int i = 0; i < count; i++) {
+        char *buf = NULL; int len = 0;
+        y8_frame_read(conn, &buf, &len);
+        free(buf);
+    }
+    gettimeofday(&t1, NULL);
+    close(conn);
+
+    int status;
+    waitpid(pid, &status, 0);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+    printf("  %d messages in %.1f ms (%.1f K msg/sec)\n", count, ms, count / ms);
+
+    char tname[64];
+    snprintf(tname, sizeof(tname), "tcp throughput %d", count);
+    TEST(tname, WIFEXITED(status) && WEXITSTATUS(status) == 0 && ms > 0);
+}
+
 /* ── TCP reconnect (server dies, client reconnects) ───── */
 
 static void test_tcp_reconnect(void) {
@@ -539,13 +589,84 @@ static void test_tls(void) {
     TEST("tls client ok", WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
     y8_tls_free(server_tls);
-    unlink("/tmp/y8test.crt");
-    unlink("/tmp/y8test.key");
+}
+
+static void test_tls_throughput(int count) {
+    printf("\n=== TLS throughput (%d messages) ===\n", count);
+    /* Reuse certs from test_tls or pre-generated */
+    if (access("/tmp/y8test.crt", R_OK) != 0) {
+        int rc = system(
+            "openssl req -x509 -newkey rsa:2048 -keyout /tmp/y8test.key "
+            "-out /tmp/y8test.crt -days 1 -nodes -batch -subj '/CN=localhost' "
+            ">/dev/null 2>&1");
+        if (rc != 0) { printf("  skip\n"); return; }
+    }
+
+    y8_tls_ctx *stls = y8_tls_server("/tmp/y8test.crt", "/tmp/y8test.key");
+    y8_tls_ctx *ctls = y8_tls_client(NULL);
+    if (!stls || !ctls) { TEST("tls ctx", 0); return; }
+
+    int server_fd = y8_tcp_listen(0);
+    struct sockaddr_in saddr;
+    socklen_t slen = sizeof(saddr);
+    getsockname(server_fd, (struct sockaddr *)&saddr, &slen);
+    int port = ntohs(saddr.sin_port);
+
+    const char *msg = "{type:signal,from:sensor1,value:42}";
+    int msglen = (int)strlen(msg);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(server_fd);
+        int cfd = y8_tcp_connect("127.0.0.1", port);
+        if (cfd < 0) _exit(1);
+        void *cssl = y8_tls_ssl_new(ctls, cfd);
+        if (!cssl) _exit(2);
+#ifdef Y8_HAS_TLS
+        if (SSL_connect((SSL *)cssl) <= 0) _exit(3);
+        for (int i = 0; i < count; i++) {
+            if (y8_frame_write_ssl(cssl, msg, msglen) < 0) _exit(1);
+        }
+        SSL_shutdown((SSL *)cssl); SSL_free((SSL *)cssl);
+#endif
+        close(cfd);
+        y8_tls_free(ctls);
+        _exit(0);
+    }
+
+    void *ssl = NULL;
+    int conn_fd = y8_tcp_accept_tls(server_fd, stls, &ssl);
+    close(server_fd);
+
+    struct timeval t0, t1;
+    gettimeofday(&t0, NULL);
+    for (int i = 0; i < count; i++) {
+        char *buf = NULL; int len = 0;
+        y8_frame_read_ssl(ssl, &buf, &len);
+        free(buf);
+    }
+    gettimeofday(&t1, NULL);
+
+#ifdef Y8_HAS_TLS
+    SSL_shutdown((SSL *)ssl); SSL_free((SSL *)ssl);
+#endif
+    close(conn_fd);
+
+    int status;
+    waitpid(pid, &status, 0);
+    double ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+    printf("  %d messages in %.1f ms (%.1f K msg/sec)\n", count, ms, count / ms);
+
+    char tname[64];
+    snprintf(tname, sizeof(tname), "tls throughput %d", count);
+    TEST(tname, WIFEXITED(status) && WEXITSTATUS(status) == 0 && ms > 0);
+    y8_tls_free(stls);
 }
 
 /* ── Main ────────────────────────────────────────────── */
 
 int main(void) {
+    signal(SIGPIPE, SIG_IGN);
     setvbuf(stdout, NULL, _IONBF, 0);
     test_basic_framing();
     test_binary_safety();
@@ -564,8 +685,13 @@ int main(void) {
     test_tcp(10000);
     test_udp(10);
     test_udp(1000);
+    test_tcp_throughput(1000);
+    test_tcp_throughput(10000);
+    test_tcp_throughput(100000);
     test_tcp_reconnect();
     test_tls();
+    test_tls_throughput(1000);
+    test_tls_throughput(10000);
 
     printf("\n%d/%d tests passed\n", pass, pass + fail);
     return fail ? 1 : 0;

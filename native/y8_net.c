@@ -336,6 +336,13 @@ void y8_tls_free(y8_tls_ctx *t) {
     if (t) { SSL_CTX_free(t->ctx); free(t); }
 }
 
+void *y8_tls_ssl_new(y8_tls_ctx *ctx, int fd) {
+    if (!ctx) return NULL;
+    SSL *ssl = SSL_new(ctx->ctx);
+    SSL_set_fd(ssl, fd);
+    return ssl;
+}
+
 int y8_tcp_accept_tls(int server_fd, y8_tls_ctx *tls, void **ssl_out) {
     int fd = y8_tcp_accept(server_fd);
     if (fd < 0) { fprintf(stderr, "tcp accept failed: %s\n", strerror(errno)); return -1; }
@@ -409,6 +416,7 @@ int y8_frame_read_ssl(void *ssl, char **data, int *len) {
 y8_tls_ctx *y8_tls_server(const char *c, const char *k) { (void)c;(void)k; return NULL; }
 y8_tls_ctx *y8_tls_client(const char *c) { (void)c; return NULL; }
 void y8_tls_free(y8_tls_ctx *t) { (void)t; }
+void *y8_tls_ssl_new(y8_tls_ctx *c, int f) { (void)c;(void)f; return NULL; }
 int y8_tcp_accept_tls(int s, y8_tls_ctx *t, void **o) { *o=NULL; (void)t; return y8_tcp_accept(s); }
 int y8_frame_write_ssl(void *s, const char *d, int l) { (void)s;(void)d;(void)l; return -1; }
 int y8_frame_read_ssl(void *s, char **d, int *l) { (void)s;(void)d;(void)l; return -1; }
