@@ -1,12 +1,13 @@
 // ============================================================
-// test.js — Self-contained test runner
+// test.js — Vending machine tests
+//
+// All inputs via ephemeral events.  No direct state mutation.
 //
 // Run with ANY JavaScript runtime:
-//   qjs --module src/test.js
-//   node src/test.js
-//   deno run src/test.js
-//
-// No node:test.  No npm.  No package.json.  No dependencies.
+//   node examples/vending/test.js
+//   bun run examples/vending/test.js
+//   deno run examples/vending/test.js
+//   qjs --module examples/vending/test.js
 // ============================================================
 
 // ── print() polyfill ────────────────────────────────────────
@@ -62,10 +63,43 @@ function runTests() {
 import { PrologEngine, termToString, listToArray } from "../../src/prolog-engine.js";
 import { createSignal, createMemo, createEffect } from "../../src/reactive.js";
 import { createReactiveEngine } from "../../src/reactive-prolog.js";
-import { buildVendingKB, updateSensor } from "./vending-kb.js";
+import { buildVendingKB } from "./vending-kb.js";
 
 var at = PrologEngine.atom, v = PrologEngine.variable;
 var c = PrologEngine.compound, n = PrologEngine.num;
+var obj = PrologEngine.object;
+
+// ── Event helpers (all inputs via ephemeral) ────────────────
+
+function sensorEvent(name, value) {
+  return c("ephemeral", [obj([
+    {key: "type", value: at("sensor")},
+    {key: "name", value: at(name)},
+    {key: "value", value: at(value)}
+  ])]);
+}
+
+function coinEvent(amount) {
+  return c("ephemeral", [obj([
+    {key: "type", value: at("coin")},
+    {key: "amount", value: n(amount)}
+  ])]);
+}
+
+function selectEvent(slot) {
+  return c("ephemeral", [obj([
+    {key: "type", value: at("select")},
+    {key: "slot", value: at(slot)}
+  ])]);
+}
+
+function vendCompleteEvent() {
+  return c("ephemeral", [obj([{key: "type", value: at("vend_complete")}])]);
+}
+
+function returnCreditEvent() {
+  return c("ephemeral", [obj([{key: "type", value: at("return_credit")}])]);
+}
 
 // ── Query helpers ───────────────────────────────────────────
 
@@ -86,38 +120,38 @@ describe("Happy path", function() {
     assert.equal(getCredit(e), 0);
     assert.equal(getDisplay(e), "INSERT COINS");
   });
-  it("accepts coins", function() {
+  it("accepts coins via ephemeral", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(25)]));
+    e.queryFirst(coinEvent(25));
     assert.equal(getCredit(e), 25);
-    e.queryFirst(c("do_insert_coin",[n(100)]));
+    e.queryFirst(coinEvent(100));
     assert.equal(getCredit(e), 125);
   });
   it("vends and gives change", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(100)]));
-    e.queryFirst(c("do_insert_coin",[n(100)]));
-    e.queryFirst(c("do_select",[at("a1")])); // cola 125¢
+    e.queryFirst(coinEvent(100));
+    e.queryFirst(coinEvent(100));
+    e.queryFirst(selectEvent("a1")); // cola 125¢
     assert.equal(getCredit(e), 75); // 200-125
     assert.equal(getState(e), "vending");
   });
   it("decrements inventory", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(125)]));
-    e.queryFirst(c("do_select",[at("a1")]));
+    e.queryFirst(coinEvent(125));
+    e.queryFirst(selectEvent("a1"));
     assert.equal(e.queryFirst(c("inventory",[at("a1"),v("C")])).args[1].value, 7);
   });
-  it("returns to idle", function() {
+  it("returns to idle after vend_complete", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(125)]));
-    e.queryFirst(c("do_select",[at("a1")]));
-    e.queryFirst(c("do_vend_complete",[]));
+    e.queryFirst(coinEvent(125));
+    e.queryFirst(selectEvent("a1"));
+    e.queryFirst(vendCompleteEvent());
     assert.equal(getState(e), "idle");
   });
-  it("returns credit", function() {
+  it("returns credit via ephemeral", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(100)]));
-    e.queryFirst(c("do_return_credit",[]));
+    e.queryFirst(coinEvent(100));
+    e.queryFirst(returnCreditEvent());
     assert.equal(getCredit(e), 0);
   });
 });
@@ -126,22 +160,22 @@ describe("Fault detection", function() {
   it("tilt sensor → tilt fault → display", function() {
     var e = buildVendingKB();
     assert.deepEqual(getFaults(e), []);
-    updateSensor(e, "tilt", "tilted");
+    e.queryFirst(sensorEvent("tilt", "tilted"));
     assert.deepEqual(getFaults(e), ["tilt_detected"]);
-    assert.equal(getDisplay(e), "OUT OF ORDER — TILT DETECTED");
+    assert.equal(getDisplay(e), "OUT OF ORDER");
   });
   it("multiple simultaneous faults", function() {
     var e = buildVendingKB();
-    updateSensor(e, "tilt", "tilted");
-    updateSensor(e, "door", "open");
+    e.queryFirst(sensorEvent("tilt", "tilted"));
+    e.queryFirst(sensorEvent("door", "open"));
     var f = getFaults(e);
     assert.ok(f.indexOf("tilt_detected") >= 0);
     assert.ok(f.indexOf("door_open") >= 0);
   });
   it("fault clears when sensor recovers", function() {
     var e = buildVendingKB();
-    updateSensor(e, "tilt", "tilted");
-    updateSensor(e, "tilt", "ok");
+    e.queryFirst(sensorEvent("tilt", "tilted"));
+    e.queryFirst(sensorEvent("tilt", "ok"));
     assert.deepEqual(getFaults(e), []);
     assert.equal(getDisplay(e), "INSERT COINS");
   });
@@ -150,37 +184,39 @@ describe("Fault detection", function() {
 describe("Faults block vending", function() {
   it("tilt blocks coin insert", function() {
     var e = buildVendingKB();
-    updateSensor(e, "tilt", "tilted");
-    assert.equal(e.queryFirst(c("do_insert_coin",[n(25)])), null);
+    e.queryFirst(sensorEvent("tilt", "tilted"));
+    e.queryFirst(coinEvent(25));
+    assert.equal(getCredit(e), 0); // credit unchanged
   });
   it("tilt blocks vend even with credit", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(125)]));
-    updateSensor(e, "tilt", "tilted");
-    assert.equal(e.queryFirst(c("do_select",[at("a1")])), null);
-    assert.equal(getState(e), "idle");
+    e.queryFirst(coinEvent(125));
+    e.queryFirst(sensorEvent("tilt", "tilted"));
+    e.queryFirst(selectEvent("a1"));
+    assert.equal(getState(e), "idle"); // still idle, not vending
+    assert.equal(getCredit(e), 125); // credit unchanged
   });
   it("motor_a1 stuck blocks a1, not a2", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(200)]));
-    updateSensor(e, "motor_a1", "stuck");
+    e.queryFirst(coinEvent(200));
+    e.queryFirst(sensorEvent("motor_a1", "stuck"));
     assert.equal(e.queryFirst(c("can_vend",[at("a1")])), null);
     assert.notEqual(e.queryFirst(c("can_vend",[at("a2")])), null);
   });
   it("delivery blocked stops all vending", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(200)]));
-    updateSensor(e, "delivery", "blocked");
+    e.queryFirst(coinEvent(200));
+    e.queryFirst(sensorEvent("delivery", "blocked"));
     assert.deepEqual(getAvailable(e), []);
   });
   it("out of stock one slot, others fine", function() {
     var e = buildVendingKB();
     for (var i = 0; i < 8; i++) {
-      e.queryFirst(c("do_insert_coin",[n(125)]));
-      e.queryFirst(c("do_select",[at("a1")]));
-      e.queryFirst(c("do_vend_complete",[]));
+      e.queryFirst(coinEvent(125));
+      e.queryFirst(selectEvent("a1"));
+      e.queryFirst(vendCompleteEvent());
     }
-    e.queryFirst(c("do_insert_coin",[n(125)]));
+    e.queryFirst(coinEvent(125));
     assert.equal(e.queryFirst(c("can_vend",[at("a1")])), null);
     assert.notEqual(e.queryFirst(c("can_vend",[at("a2")])), null);
   });
@@ -189,18 +225,18 @@ describe("Faults block vending", function() {
 describe("Fault response policy", function() {
   it("tilt → lock_and_alarm", function() {
     var e = buildVendingKB();
-    updateSensor(e, "tilt", "tilted");
+    e.queryFirst(sensorEvent("tilt", "tilted"));
     assert.equal(e.queryFirst(c("fault_response",[at("tilt_detected"),v("A")])).args[1].name, "lock_and_alarm");
   });
   it("overtemp → compressor_boost", function() {
     var e = buildVendingKB();
-    updateSensor(e, "temp", "hot");
+    e.queryFirst(sensorEvent("temp", "hot"));
     assert.equal(e.queryFirst(c("fault_response",[at("overtemp"),v("A")])).args[1].name, "compressor_boost");
   });
   it("power fault with credit → emergency return", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(100)]));
-    updateSensor(e, "power", "low");
+    e.queryFirst(coinEvent(100));
+    e.queryFirst(sensorEvent("power", "low"));
     assert.notEqual(e.queryFirst(c("should_return_credit_on_fault",[])), null);
   });
 });
@@ -208,13 +244,13 @@ describe("Fault response policy", function() {
 describe("Diagnostics", function() {
   it("reports insufficient credit", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(50)]));
+    e.queryFirst(coinEvent(50));
     assert.equal(e.queryFirst(c("vend_blocked_reason",[at("a1"),v("R")])).args[1].name, "insufficient_credit");
   });
   it("reports fault as reason", function() {
     var e = buildVendingKB();
-    e.queryFirst(c("do_insert_coin",[n(200)]));
-    updateSensor(e, "door", "open");
+    e.queryFirst(coinEvent(200));
+    e.queryFirst(sensorEvent("door", "open"));
     assert.equal(e.queryFirst(c("vend_blocked_reason",[at("a1"),v("R")])).args[1].name, "has_fault");
   });
 });
@@ -225,21 +261,21 @@ describe("Reactive layer", function() {
     var rp = createReactiveEngine(e);
     var display = rp.createQueryFirst(function(){return c("display_message",[v("M")]);});
     assert.equal(display().args[0].name, "INSERT COINS");
-    updateSensor(e, "tilt", "tilted"); rp.bump();
-    assert.equal(display().args[0].name, "OUT OF ORDER — TILT DETECTED");
-    updateSensor(e, "tilt", "ok"); rp.bump();
+    rp.act(sensorEvent("tilt", "tilted"));
+    assert.equal(display().args[0].name, "OUT OF ORDER");
+    rp.act(sensorEvent("tilt", "ok"));
     assert.equal(display().args[0].name, "INSERT COINS");
   });
   it("available slots update when motor fails", function() {
     var e = buildVendingKB();
     var rp = createReactiveEngine(e);
-    rp.act(c("do_insert_coin",[n(200)]));
+    rp.act(coinEvent(200));
     var avail = rp.createQueryFirst(function(){return c("available_slots",[v("S")]);});
     var slots = function(){return listToArray(avail().args[0]).map(function(t){return t.name;});};
     assert.ok(slots().indexOf("a1") >= 0);
-    updateSensor(e, "motor_a1", "stuck"); rp.bump();
+    rp.act(sensorEvent("motor_a1", "stuck"));
     assert.ok(slots().indexOf("a1") < 0);
-    updateSensor(e, "motor_a1", "ready"); rp.bump();
+    rp.act(sensorEvent("motor_a1", "ready"));
     assert.ok(slots().indexOf("a1") >= 0);
   });
   it("full: insert → tilt → recover → vend", function() {
@@ -247,13 +283,14 @@ describe("Reactive layer", function() {
     var rp = createReactiveEngine(e);
     var display = rp.createQueryFirst(function(){return c("display_message",[v("M")]);});
     var credit = rp.createQueryFirst(function(){return c("credit",[v("C")]);});
-    rp.act(c("do_insert_coin",[n(125)]));
+    rp.act(coinEvent(125));
     assert.equal(credit().args[0].value, 125);
-    updateSensor(e, "tilt", "tilted"); rp.bump();
-    assert.equal(display().args[0].name, "OUT OF ORDER — TILT DETECTED");
-    assert.equal(rp.act(c("do_select",[at("a1")])), null);
-    updateSensor(e, "tilt", "ok"); rp.bump();
-    rp.act(c("do_select",[at("a1")]));
+    rp.act(sensorEvent("tilt", "tilted"));
+    assert.equal(display().args[0].name, "OUT OF ORDER");
+    rp.act(selectEvent("a1"));
+    assert.equal(getState(e), "idle"); // blocked — still idle
+    rp.act(sensorEvent("tilt", "ok"));
+    rp.act(selectEvent("a1"));
     assert.equal(credit().args[0].value, 0);
   });
 });

@@ -133,9 +133,24 @@ class Engine:
         self._natives[name] = fn
 
     def _fire_react(self, event):
-        """Fire all react(Event) clauses — the observer pattern."""
-        react_goal = compound("react", [event])
-        self._solve([react_goal], {}, 0, lambda s: None)
+        """Fire each matching react/1 clause once (first solution per clause).
+
+        No backtracking within a clause — prevents double-firing when
+        assert/retract in the body mutates state that the body also queries.
+        """
+        class _Done(Exception):
+            pass
+        for clause in self.clauses:
+            head, body = clause
+            if head[0] != "compound" or head[1] != "react" or len(head[2]) != 1:
+                continue
+            fresh_h, fresh_b = self._fresh_clause(clause)
+            s = unify(event, fresh_h[2][0], {})
+            if s is not None:
+                try:
+                    self._solve(list(fresh_b), s, 0, lambda _s: (_ for _ in ()).throw(_Done()))
+                except _Done:
+                    pass
 
     # ── Clause management ────────────────────────────────────
 
@@ -439,11 +454,20 @@ class Engine:
             eng._solve(rest, subst, depth + 1, on_sol)
         self.builtins["retractall/1"] = _retractall
 
-        # ephemeral/1 — transient event, fires react(Event)
+        # ephemeral/1 — transient event
+        # Fires react(Event) rules (new pattern), then scoped assertion
+        # for old-style patterns that query the event as a fact.
         def _ephemeral(goal, rest, subst, depth, on_sol):
             event = deep_walk(goal[2][0], subst)
             eng._fire_react(event)
-            eng._solve(rest, subst, depth + 1, on_sol)
+            eng.clauses.append((event, []))
+            try:
+                eng._solve(rest, subst, depth + 1, on_sol)
+            finally:
+                for i in range(len(eng.clauses) - 1, -1, -1):
+                    if eng.clauses[i][0] is event:
+                        eng.clauses.pop(i)
+                        break
         self.builtins["ephemeral/1"] = _ephemeral
 
         # native/2 — call host-registered function

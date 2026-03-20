@@ -120,11 +120,25 @@ PrologEngine.prototype.registerNative = function(name, fn) {
 // changes propagate forward through react rules.
 
 PrologEngine.prototype._fireReact = function(event) {
-  var reactGoal = PrologEngine.compound("react", [event]);
   var counter = { n: 8000 };
-  var self = this;
-  // Find and solve ALL react clauses (not just first)
-  this.solve([reactGoal], new Map(), counter, 0, function() {});
+  var DONE = {};
+  // Fire each matching react/1 clause once (first solution per clause).
+  // No backtracking within a clause — prevents double-firing when
+  // assert/retract in the body mutates state that the body also queries.
+  for (var i = 0; i < this.clauses.length; i++) {
+    var clause = this.clauses[i];
+    if (clause.head.type !== "compound" || clause.head.functor !== "react"
+        || clause.head.args.length !== 1) continue;
+    var fresh = this._freshVars(clause, counter);
+    var s = this.unify(event, fresh.head.args[0], new Map());
+    if (s !== null) {
+      try {
+        this.solve(fresh.body, s, counter, 0, function() { throw DONE; });
+      } catch (e) {
+        if (e !== DONE) throw e;
+      }
+    }
+  }
 };
 
 // ── Clause management ─────────────────────────────────────────
@@ -439,8 +453,22 @@ PrologEngine.prototype._registerBuiltins = function() {
 
   this.builtins["ephemeral/1"] = function(goal, rest, subst, counter, depth, onSolution) {
     var event = self.deepWalk(goal.args[0], subst);
+    // Fire all matching react(Event) rules (new pattern)
     self._fireReact(event);
-    self.solve(rest, subst, counter, depth + 1, onSolution);
+    // Scoped assertion: temporarily assert event as a fact, solve rest,
+    // then retract.  Supports old-style patterns that query the event
+    // as a fact (e.g. ephemeral(signal(X,Y)), react.)
+    self.clauses.push({ head: event, body: [] });
+    try {
+      self.solve(rest, subst, counter, depth + 1, onSolution);
+    } finally {
+      for (var i = self.clauses.length - 1; i >= 0; i--) {
+        if (self.clauses[i].head === event) {
+          self.clauses.splice(i, 1);
+          break;
+        }
+      }
+    }
   };
 
   this.builtins["native/2"] = function(goal, rest, subst, counter, depth, onSolution) {

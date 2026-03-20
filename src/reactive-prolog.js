@@ -79,17 +79,6 @@ function createReactiveEngine(engineOrFactory) {
     });
   }
 
-  // ephemeral/1 — scoped assertion: assert term, solve rest, retract term.
-  engine.builtins["ephemeral/1"] = function(goal, rest, subst, counter, depth, onSolution) {
-    var term = engine.deepWalk(goal.args[0], subst);
-    engine.clauses.push({ head: term, body: [] });
-    try {
-      engine.solve(rest, subst, counter, depth + 1, onSolution);
-    } finally {
-      engine.retractFirst(term);
-    }
-  };
-
   return {
     engine: engine,
     generation: generation,

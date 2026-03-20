@@ -2,14 +2,23 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
 # ============================================================
 # vending.py — Vending machine policy as Prolog clauses
+#
+# All external inputs are ephemeral events:
+#   ephemeral({type: sensor, name: tilt, value: tilted}).
+#   ephemeral({type: coin, amount: 25}).
+#   ephemeral({type: select, slot: a1}).
+#   ephemeral({type: vend_complete}).
+#   ephemeral({type: return_credit}).
+#
+# React rules handle events.  Policy rules are pure Prolog.
 # ============================================================
 
-from prolog import Engine, atom, var, compound, num, lst
+from prolog import Engine, atom, var, compound, num, lst, obj
 
 
 def build_vending_kb():
     e = Engine()
-    a, v, c, n = atom, var, compound, num
+    a, v, c, n, o = atom, var, compound, num, obj
 
     # Products: product(Slot, Name, PriceCents)
     for slot, name, price in [
@@ -56,7 +65,7 @@ def build_vending_kb():
         e.add_clause(c("motor_for", [a(slot), a("motor_" + slot)]))
 
     # has_any_fault / has_critical_fault
-    e.add_clause(c("has_any_fault", []), [c("fault_condition", [v("_")])])
+    e.add_clause(c("has_any_fault", []), [c("fault_condition", [v("_F")])])
     for critical in ["tilt_detected", "door_open", "power_fault"]:
         e.add_clause(c("has_critical_fault", []),
             [c("fault_condition", [a(critical)])])
@@ -93,10 +102,20 @@ def build_vending_kb():
         c("sensor", [a("coin_mech"), a("ready")]),
     ])
 
-    # ── Actions ───────────────────────────────────────────
+    # ── React rules (event handlers) ─────────────────────
 
-    # do_insert_coin(Amount)
-    e.add_clause(c("do_insert_coin", [v("Amt")]), [
+    # react({type: sensor, name: Name, value: Value})
+    e.add_clause(c("react", [o([
+        ("type", a("sensor")), ("name", v("Name")), ("value", v("Value"))
+    ])]), [
+        c("retractall", [c("sensor", [v("Name"), v("_OldVal")])]),
+        c("assert", [c("sensor", [v("Name"), v("Value")])]),
+    ])
+
+    # react({type: coin, amount: Amt})
+    e.add_clause(c("react", [o([
+        ("type", a("coin")), ("amount", v("Amt"))
+    ])]), [
         c("can_accept_coin", []),
         c("credit", [v("Old")]),
         c("is", [v("New"), c("+", [v("Old"), v("Amt")])]),
@@ -104,8 +123,10 @@ def build_vending_kb():
         c("assert", [c("credit", [v("New")])]),
     ])
 
-    # do_select(Slot)
-    e.add_clause(c("do_select", [v("Slot")]), [
+    # react({type: select, slot: Slot})
+    e.add_clause(c("react", [o([
+        ("type", a("select")), ("slot", v("Slot"))
+    ])]), [
         c("can_vend", [v("Slot")]),
         c("product", [v("Slot"), v("_N"), v("Price")]),
         c("credit", [v("Old")]),
@@ -120,15 +141,15 @@ def build_vending_kb():
         c("assert", [c("machine_state", [a("vending")])]),
     ])
 
-    # do_vend_complete
-    e.add_clause(c("do_vend_complete", []), [
+    # react({type: vend_complete})
+    e.add_clause(c("react", [o([("type", a("vend_complete"))])]), [
         c("machine_state", [a("vending")]),
         c("retract", [c("machine_state", [a("vending")])]),
         c("assert", [c("machine_state", [a("idle")])]),
     ])
 
-    # do_return_credit
-    e.add_clause(c("do_return_credit", []), [
+    # react({type: return_credit})
+    e.add_clause(c("react", [o([("type", a("return_credit"))])]), [
         c("can_return_credit", []),
         c("credit", [v("C")]),
         c("retract", [c("credit", [v("C")])]),
@@ -186,11 +207,3 @@ def build_vending_kb():
          c("<", [v("Cr"), v("P")])])
 
     return e
-
-
-def update_sensor(engine, name, value):
-    """Update a sensor value in the Prolog database."""
-    old = engine.query_first(compound("sensor", [atom(name), var("V")]))
-    if old:
-        engine.retract_first(compound("sensor", [atom(name), var("_")]))
-    engine.add_clause(compound("sensor", [atom(name), atom(value)]))
