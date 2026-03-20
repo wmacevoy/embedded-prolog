@@ -17,9 +17,15 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tcl cmake automake autoconf libtool
+
       - name: Build LibreSSL (for SQLCipher crypto)
         run: |
           cd vendor/libressl
+          ./autogen.sh
           mkdir -p build && cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local \
             -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
@@ -27,11 +33,6 @@ jobs:
           sudo make install
           echo "=== LibreSSL installed ==="
           ls /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a
-
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tcl
 
       - name: Build SQLCipher amalgamation
         run: |
