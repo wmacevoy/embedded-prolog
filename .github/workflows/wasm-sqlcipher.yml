@@ -25,9 +25,9 @@ jobs:
       - name: Build SQLCipher amalgamation
         run: |
           cd vendor/sqlcipher
-          ./configure --enable-tempstore=yes \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" \
-            LDFLAGS="-lcrypto"
+          ./configure --with-tempstore=yes \
+            --with-crypto-lib=openssl \
+            CFLAGS="-DSQLITE_HAS_CODEC"
           make sqlite3.c
           echo "=== Amalgamation ==="
           ls -lh sqlite3.c sqlite3.h
