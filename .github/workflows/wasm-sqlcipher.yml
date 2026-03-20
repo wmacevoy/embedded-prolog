@@ -15,19 +15,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
+
+      - name: Build LibreSSL (for SQLCipher crypto)
+        run: |
+          cd vendor/libressl
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
+          make -j$(nproc)
+          sudo make install
+          echo "=== LibreSSL installed ==="
+          ls /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a
 
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y tcl libssl-dev
+          sudo apt-get install -y tcl
 
       - name: Build SQLCipher amalgamation
         run: |
           cd vendor/sqlcipher
           ./configure --with-tempstore=yes \
-            --with-crypto-lib=openssl \
-            CFLAGS="-DSQLITE_HAS_CODEC"
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL -I/usr/local/include" \
+            LDFLAGS="-L/usr/local/lib -lssl -lcrypto"
           make sqlite3.c
           echo "=== Amalgamation ==="
           ls -lh sqlite3.c sqlite3.h
@@ -40,38 +51,23 @@ jobs:
 
       - name: Compile SQLCipher to WASM
         run: |
-          # Copy amalgamation + wrapper
           mkdir -p wasm/build
           cp vendor/sqlcipher/sqlite3.c wasm/build/
           cp vendor/sqlcipher/sqlite3.h wasm/build/
           cp wasm/wyatt_wasm.c wasm/build/
 
-          # Add key function
           cat >> wasm/build/wyatt_wasm.c <<'KEYEOF'
-
-          /* SQLCipher key — call after open, before any other operation */
           int wasm_db_key(sqlite3 *db, const char *key, int key_len) {
               return sqlite3_key(db, key, key_len);
           }
           KEYEOF
 
-          EXPORTED='[
-            "_wasm_db_open", "_wasm_db_close", "_wasm_db_exec", "_wasm_db_errmsg",
-            "_wasm_db_key",
-            "_wasm_db_prepare", "_wasm_stmt_finalize", "_wasm_stmt_reset",
-            "_wasm_stmt_step", "_wasm_stmt_run",
-            "_wasm_stmt_bind_text", "_wasm_stmt_bind_int",
-            "_wasm_stmt_bind_double", "_wasm_stmt_bind_null",
-            "_wasm_stmt_columns", "_wasm_stmt_colname", "_wasm_stmt_coltype",
-            "_wasm_stmt_int", "_wasm_stmt_double", "_wasm_stmt_text",
-            "_malloc", "_free"
-          ]'
-
+          EXPORTED='["_wasm_db_open","_wasm_db_close","_wasm_db_exec","_wasm_db_errmsg","_wasm_db_key","_wasm_db_prepare","_wasm_stmt_finalize","_wasm_stmt_reset","_wasm_stmt_step","_wasm_stmt_run","_wasm_stmt_bind_text","_wasm_stmt_bind_int","_wasm_stmt_bind_double","_wasm_stmt_bind_null","_wasm_stmt_columns","_wasm_stmt_colname","_wasm_stmt_coltype","_wasm_stmt_int","_wasm_stmt_double","_wasm_stmt_text","_malloc","_free"]'
           RUNTIME='["cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]'
 
           cd wasm/build
           emcc wyatt_wasm.c \
-            -I. \
+            -I. -I/usr/local/include \
             -O2 \
             -DSQLITE_HAS_CODEC \
             -DSQLCIPHER_CRYPTO_OPENSSL \
@@ -88,7 +84,6 @@ jobs:
             -s EXPORT_NAME="initSqlcipher" \
             -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
-            -lssl -lcrypto \
             -o sqlcipher.js
 
           echo "=== Output ==="
