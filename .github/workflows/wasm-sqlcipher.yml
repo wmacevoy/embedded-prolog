@@ -97,8 +97,7 @@ jobs:
             -s MODULARIZE=1 \
             -s EXPORT_NAME="initSqlcipher" \
             -s ENVIRONMENT='web,worker,node' \
-            -s FILESYSTEM=0 \
-            -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
+            -s FILESYSTEM=1 \
             $HOME/libressl-wasm/lib/libcrypto.a \
             -o sqlcipher.js
 
