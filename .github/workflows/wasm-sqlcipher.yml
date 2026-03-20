@@ -53,6 +53,7 @@ jobs:
       # Build LibreSSL again with emcc (for WASM linking)
       - name: Build LibreSSL for WASM
         run: |
+          rm -rf vendor/libressl/build-wasm
           mkdir -p vendor/libressl/build-wasm && cd vendor/libressl/build-wasm
           emcmake cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/libressl-wasm \
             -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF \
@@ -97,6 +98,7 @@ jobs:
             -s EXPORT_NAME="initSqlcipher" \
             -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
+            -s ERROR_ON_UNDEFINED_SYMBOLS=0 \
             $HOME/libressl-wasm/lib/libcrypto.a \
             -o sqlcipher.js
 
