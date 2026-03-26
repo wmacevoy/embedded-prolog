@@ -76,12 +76,22 @@ int wyatt_native(wyatt_t *w, const char *name, wyatt_native_fn fn, void *ctx);
 // Send
 char *wyatt_collect_sends(wyatt_t *w);
 
-// Crypto (LibreSSL)
+// Crypto (always available — LibreSSL linked)
 char *wyatt_sha256(const char *data, int len);
 char *wyatt_encrypt(const char *plaintext, int len, const char *key);
 char *wyatt_decrypt(const char *ciphertext, int len, const char *key);
+char *wyatt_hmac(const char *data, int len, const char *key, int key_len);
 char *wyatt_jwt_sign(const char *payload, const char *secret);
 char *wyatt_jwt_verify(const char *token, const char *secret);
+char *wyatt_random_bytes(int n);
+char *wyatt_hkdf(const char *ikm, int ikm_len,
+                 const char *salt, int salt_len,
+                 const char *info, int info_len, int out_len);
+char *wyatt_shamir_split(const char *secret, int secret_len, int m, int n);
+char *wyatt_shamir_recover(const char *shares_qjson);
+
+// Database encryption (SQLCipher)
+int wyatt_key(wyatt_t *w, const char *passphrase);
 
 // Free returned strings
 void wyatt_free(char *str);
@@ -172,17 +182,11 @@ CRYPTO_SOURCES = vendor/qjson/native/qjson_crypto.c
 CRYPTO_FLAGS = -DQJSON_USE_CRYPTO -I$(LIBRESSL)/include
 CRYPTO_LIBS = $(LIBRESSL)/lib/libcrypto.a
 
-libwyatt.so: $(SOURCES)
-    $(CC) $(CFLAGS) -shared -DQJSON_USE_LIBBF \
+libwyatt.so: $(SOURCES) $(CRYPTO_SOURCES)
+    $(CC) $(CFLAGS) -shared -DQJSON_USE_LIBBF -DQJSON_USE_CRYPTO \
         -Ivendor/qjson/native -Ivendor/qjson/native/libbf \
-        -Ivendor/quickjs \
-        -o $@ $^ $(LIBS)
-
-libwyatt_crypto.so: $(SOURCES) $(CRYPTO_SOURCES)
-    $(CC) $(CFLAGS) -shared -DQJSON_USE_LIBBF $(CRYPTO_FLAGS) \
-        -Ivendor/qjson/native -Ivendor/qjson/native/libbf \
-        -Ivendor/quickjs \
-        -o $@ $^ $(LIBS) $(CRYPTO_LIBS)
+        -Ivendor/quickjs -I$(LIBRESSL)/include \
+        -o $@ $^ $(LIBS) $(LIBRESSL)/lib/libcrypto.a
 ```
 
 ### Phase 3: Embed parser.js
@@ -258,15 +262,19 @@ int main(int argc, char **argv) {
 | `test_y8_datalog.py` (45 tests) | **Stays** — calls through ctypes wrapper |
 | Examples (family, vending, tutorial) | **Stay** — call through wrapper |
 
-## Dependencies (all vendored or system)
+## Dependencies (all vendored)
 
 | Library | Source | Purpose |
 |---------|--------|---------|
-| SQLite | system `libsqlite3` or vendored | Storage |
+| SQLCipher | `vendor/sqlcipher-libressl/` | Encrypted storage (replaces plain SQLite) |
+| LibreSSL | linked by path (never -lssl) | Crypto: AES, SHA, HMAC, HKDF |
 | QuickJS | `vendor/quickjs/` | Run parser.js |
 | libbf | `vendor/qjson/native/libbf/` | Arithmetic projection |
 | qjson | `vendor/qjson/native/` | Format + SQL + compare |
-| LibreSSL | system or vendored | Crypto (optional) |
+
+Crypto is not optional — wyatt always ships with SQLCipher,
+LibreSSL, libbf, and Shamir.  Every database is encryptable.
+Every number is exact.  Every secret is splittable.
 
 ## Verification
 
