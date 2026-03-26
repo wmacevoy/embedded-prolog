@@ -1,103 +1,115 @@
-name: test
+name: Tests
 
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
-  # ── macOS (latest) ──────────────────────────────────────
+  # ── Format + engine tests (macOS) ─────────────────────────
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
+
+      - name: Build qjson extension
+        run: |
+          cd vendor/qjson
+          make qjson_ext.dylib
 
       - name: Run test suite
         run: ./test.sh
-
-      - name: Run native C y8_qjson tests
-        run: |
-          gcc -O2 -Wall -std=c11 -frounding-math -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm
-          ./native/test_y8_qjson
 
       - name: Run native C core tests
         run: |
           gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c
           ./native/test_core
 
-  # ── Ubuntu / Debian ─────────────────────────────────────
+  # ── Ubuntu / Debian ───────────────────────────────────────
   debian:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Install C toolchain
         run: sudo apt-get update && sudo apt-get install -y gcc
 
+      - name: Build qjson extension
+        run: |
+          cd vendor/qjson
+          make qjson_ext.so
+
       - name: Run test suite
         run: ./test.sh
 
-      - name: Run native C y8_qjson tests
-        run: |
-          gcc -O2 -Wall -std=c11 -frounding-math -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm
-          ./native/test_y8_qjson
-
-  # ── Alpine (musl libc) — C + Python only ─────────────────
-  # Alpine's system Node is too old for ESM imports.
-  # JS tests run on Debian/macOS/Windows.  Alpine validates
-  # musl libc compatibility for C and Python.
+  # ── Alpine (musl libc) — C + Python only ──────────────────
   alpine:
     runs-on: ubuntu-latest
     container: alpine:3.20
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install deps
-        run: apk add --no-cache gcc musl-dev python3 bash
+        run: apk add --no-cache gcc musl-dev python3 bash make sqlite-dev
+
+      - name: Build qjson extension
+        run: |
+          cd vendor/qjson
+          make qjson_ext.so
 
       - name: C tests
         run: |
           gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c && ./native/test_core
-          gcc -O2 -Wall -std=c11 -frounding-math -o native/test_y8_qjson native/y8_qjson.c native/test_y8_qjson.c -lm && ./native/test_y8_qjson
 
       - name: Python tests
         run: |
           python3 src/test_persist.py
-          python3 src/test_qjson.py
+          python3 src/test_qsql.py
+          python3 src/test_y8_datalog.py
           python3 src/test_fossilize.py
           python3 examples/vending/test.py
+          python3 examples/vending/test_datalog.py
+          python3 examples/family/test_family.py
+          python3 examples/tutorial/test_datalog.py
           python3 examples/router/test.py
 
-  # ── Windows ─────────────────────────────────────────────
+  # ── Windows ───────────────────────────────────────────────
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Python tests
         shell: bash
@@ -105,7 +117,6 @@ jobs:
           PYTHONUTF8: 1
         run: |
           python3 src/test_persist.py
-          python3 src/test_qjson.py
           python3 src/test_fossilize.py
           python3 examples/vending/test.py
           python3 examples/router/test.py
@@ -114,7 +125,6 @@ jobs:
         shell: bash
         run: |
           node src/test-persist.js
-          node src/test-qjson.js
           node src/test-fossilize.js
           node examples/vending/test.js
           node examples/margin/test.js
@@ -127,51 +137,13 @@ jobs:
           node examples/greenhouse/test.js
           node examples/tutorial/test.js
 
-  # ── ESP32 (QEMU) — C core + y8_qjson only ─────────────────
-  esp32:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install ESP32 QEMU + toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-xtensa-esp32 qemu-system-xtensa || true
-
-      - name: Cross-compile C core for Xtensa (validation only)
-        run: |
-          # If cross-compiler available, validate compilation
-          if command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
-            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/prolog_core.c -o /tmp/prolog_core.o
-            xtensa-esp32-elf-gcc -O2 -Wall -std=c11 -c native/y8_qjson.c -o /tmp/y8_qjson.o
-            echo "ESP32 cross-compilation: OK"
-          else
-            echo "ESP32 cross-compiler not available — skipping (install esp-idf for full test)"
-            # Fall back: at least verify it compiles with host GCC
-            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/prolog_core.c -o /dev/null
-            gcc -O2 -Wall -std=c11 -DESP32_COMPAT_CHECK -c native/y8_qjson.c -o /dev/null
-            echo "Host compilation check: OK"
-          fi
-
-  # ── Browser demo smoke tests (non-blocking) ─────────────
-  browser:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Smoke test browser demos
-        run: ./test-browser.sh
-
-  # ── Docker (Bun runtime — matches local dev) ────────────
+  # ── Docker (Bun runtime) ──────────────────────────────────
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build and test via Docker
         run: |

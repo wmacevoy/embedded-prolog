@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Run tests first ─────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install C toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Build qjson extension
+        run: |
+          cd vendor/qjson
+          make qjson_ext.so
+
+      - name: Run test suite
+        run: ./test.sh
+
+  # ── Bundle JS release ───────────────────────────────────
+  bundle:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: y8-src
+          path: |
+            src/*.js
+            src/*.py
+            vendor/qjson/src/*.js
+            vendor/qjson/src/*.py
+
+  # ── GitHub Release ──────────────────────────────────────
+  release:
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs: [test, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

@@ -2,11 +2,9 @@ name: wasm-sqlcipher
 
 on:
   push:
-    branches: [main, y8-reactive]
+    branches: [main]
     paths:
       - 'wasm/**'
-      - 'vendor/sqlcipher'
-      - 'vendor/libressl'
       - '.github/workflows/wasm-sqlcipher.yml'
   workflow_dispatch:
 
@@ -18,58 +16,58 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout sqlcipher-libressl
+        uses: actions/checkout@v4
+        with:
+          repository: wmacevoy/sqlcipher-libressl
+          path: sqlcipher-libressl
+
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y tcl cmake automake autoconf libtool
+          sudo apt-get install -y tcl cmake
 
-      - name: Build LibreSSL (static, for SQLCipher crypto)
+      - name: Build LibreSSL (native, for SQLCipher configure)
         run: |
-          cd vendor/libressl
-          ./autogen.sh
-          mkdir -p build && cd build
+          curl -sL https://github.com/libressl/portable/releases/download/v4.2.1/libressl-4.2.1.tar.gz | tar xz
+          cd libressl-4.2.1
+          mkdir build && cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/libressl \
             -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
-          make -j$(nproc)
-          make install
-          echo "=== LibreSSL ==="
-          ls $HOME/libressl/lib/libssl.a $HOME/libressl/lib/libcrypto.a
+          make -j$(nproc) && make install
 
-      - name: Build SQLCipher amalgamation (with LibreSSL)
+      - name: Build SQLCipher amalgamation
         run: |
-          cd vendor/sqlcipher
+          cd sqlcipher-libressl
           ./configure --with-tempstore=yes \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL -I$HOME/libressl/include" \
-            LDFLAGS="-L$HOME/libressl/lib -lssl -lcrypto"
-          make sqlite3.c
-          echo "=== Amalgamation ==="
-          ls -lh sqlite3.c sqlite3.h
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL \
+                    -DSQLITE_EXTRA_INIT=sqlcipher_extra_init \
+                    -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown \
+                    -I$HOME/libressl/include" \
+            LDFLAGS="$HOME/libressl/lib/libcrypto.a"
+          make -j$(nproc) sqlite3.c
 
       - name: Install Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.74
 
-      # Build LibreSSL again with emcc (for WASM linking)
       - name: Build LibreSSL for WASM
         run: |
-          rm -rf vendor/libressl/build-wasm
-          mkdir -p vendor/libressl/build-wasm && cd vendor/libressl/build-wasm
+          cd libressl-4.2.1
+          mkdir -p build-wasm && cd build-wasm
           emcmake cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/libressl-wasm \
             -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_C_FLAGS="-DHAVE_TIMEGM -DHAVE_GETENTROPY -D__STDC_NO_ATOMICS__"
           emmake make -j$(nproc) crypto
           mkdir -p $HOME/libressl-wasm/lib
           cp crypto/libcrypto.a $HOME/libressl-wasm/lib/
-          file $HOME/libressl-wasm/lib/libcrypto.a
-          echo "=== LibreSSL WASM ==="
-          ls -lh $HOME/libressl-wasm/lib/
 
       - name: Compile SQLCipher to WASM
         run: |
           mkdir -p wasm/dist
-          cp vendor/sqlcipher/sqlite3.c wasm/dist/
-          cp vendor/sqlcipher/sqlite3.h wasm/dist/
+          cp sqlcipher-libressl/sqlite3.c wasm/dist/
+          cp sqlcipher-libressl/sqlite3.h wasm/dist/
           cp wasm/wyatt_wasm.c wasm/dist/
 
           EXPORTED='["_wasm_db_open","_wasm_db_close","_wasm_db_exec","_wasm_db_errmsg","_wasm_db_changes","_wasm_db_total_changes","_wasm_db_key","_wasm_db_prepare","_wasm_stmt_finalize","_wasm_stmt_reset","_wasm_stmt_clear_bindings","_wasm_stmt_step","_wasm_stmt_bind_text","_wasm_stmt_bind_int","_wasm_stmt_bind_double","_wasm_stmt_bind_null","_wasm_stmt_bind_parameter_count","_wasm_stmt_columns","_wasm_stmt_colname","_wasm_stmt_coltype","_wasm_stmt_int","_wasm_stmt_double","_wasm_stmt_text","_malloc","_free"]'
@@ -102,7 +100,6 @@ jobs:
             -o sqlcipher.js
 
           rm -f sqlite3.c sqlite3.h wyatt_wasm.c
-          echo "=== Output ==="
           ls -lh sqlcipher.js sqlcipher.wasm
 
       - name: Upload WASM artifacts
