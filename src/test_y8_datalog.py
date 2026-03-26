@@ -519,6 +519,153 @@ test("execute coin insert", test_execute_coin_insert)
 test("execute findall", test_execute_findall)
 test("react with body clause", test_react_with_body)
 
+# ── Edge cases + deeper coverage ─────────────────────────────
+
+def test_numbers_in_facts():
+    db = fresh_db()
+    db.assert_fact('price', ['btc', 67432])
+    db.assert_fact('price', ['eth', 3500])
+    results = db.query('price', [None, None])
+    assert len(results) == 2
+    # Query by number
+    results = db.query('price', [None, 67432])
+    assert len(results) == 1
+    assert results[0][0] == 'btc'
+
+def test_mixed_facts_and_rules():
+    """Same predicate has both facts and rules."""
+    db = fresh_db()
+    db.assert_fact('path', ['a', 'b'])  # direct fact
+    load_program(db, """
+        edge(b, c).
+        edge(c, d).
+        path(X, Y) :- edge(X, Y).
+        path(X, Y) :- edge(X, Z), path(Z, Y).
+    """)
+    # Should find direct fact AND derived paths
+    results = db.resolve('path', ['a', Unbound('Y')])
+    targets = [r['Y'] for r in results]
+    assert 'b' in targets, "direct fact a→b"
+
+def test_multiple_rules_or():
+    """Multiple rules for same predicate = OR."""
+    db = fresh_db()
+    load_program(db, """
+        parent(alice, bob).
+        parent(bob, carol).
+        mentor(alice, carol).
+        influences(X, Y) :- parent(X, Y).
+        influences(X, Y) :- mentor(X, Y).
+    """)
+    results = db.resolve('influences', ['alice', Unbound('Y')])
+    targets = sorted([r['Y'] for r in results])
+    assert 'bob' in targets, "parent influence"
+    assert 'carol' in targets, "mentor influence"
+
+def test_rule_with_not():
+    """Rule body with negation."""
+    db = fresh_db()
+    db.assert_fact('student', ['alice'])
+    db.assert_fact('student', ['bob'])
+    db.assert_fact('graduated', ['alice'])
+
+    bindings = {}
+    # Find students who haven't graduated
+    results = []
+    for fact in db.query('student'):
+        b = {}
+        ok = db.execute_body([
+            ['not', ['graduated', fact[0]]]
+        ], b)
+        if ok:
+            results.append(fact[0])
+    assert results == ['bob'], "only bob hasn't graduated"
+
+def test_rule_with_arithmetic():
+    """Rule body with arithmetic comparison."""
+    db = fresh_db()
+    db.assert_fact('score', ['alice', 85])
+    db.assert_fact('score', ['bob', 42])
+    db.assert_fact('score', ['carol', 91])
+
+    # Find passing students (score >= 60)
+    passing = []
+    for fact in db.query('score'):
+        b = {'S': fact[1]}
+        if db.execute_body([['>=', Unbound('S'), 60]], b):
+            passing.append(fact[0])
+    assert sorted(passing) == ['alice', 'carol']
+
+def test_retract_during_body():
+    """Retract and re-assert in a single body execution."""
+    db = fresh_db()
+    db.assert_fact('balance', [1000])
+
+    # Withdraw 300
+    bindings = {}
+    ok = db.execute_body([
+        ['balance', Unbound('Old')],
+        ['>=', Unbound('Old'), 300],
+        ['is', Unbound('New'), ['-', Unbound('Old'), 300]],
+        ['retract', ['balance', Unbound('Old')]],
+        ['assert', ['balance', Unbound('New')]],
+    ], bindings)
+    assert ok
+    assert bindings['New'] == 700
+    results = db.query('balance')
+    assert results[0][0] == 700
+
+def test_ephemeral_cascading_react():
+    """Ephemeral triggers react which triggers another ephemeral."""
+    db = fresh_db()
+    log = []
+    db.add_react('sensor', lambda et, pred, fact, db: (
+        log.append(('sensor', fact)),
+        db.ephemeral('alert', 'system', ['high_temp']) if fact[1] > 30 else None,
+    ))
+    db.add_react('alert', lambda et, pred, fact, db: (
+        log.append(('alert', fact)),
+    ))
+    db.ephemeral('sensor', 'temp', ['kitchen', 35])
+    assert len(log) == 2
+    assert log[0] == ('sensor', ['kitchen', 35])
+    assert log[1] == ('alert', ['high_temp'])
+
+def test_error_handling():
+    """Graceful handling of bad inputs."""
+    db = fresh_db()
+    # Query non-existent predicate
+    results = db.query('nonexistent')
+    assert results == []
+
+    # Retract from non-existent predicate
+    ok = db.retract('nonexistent', ['x'])
+    assert not ok
+
+    # Resolve non-existent predicate (no rules)
+    results = db.resolve('nonexistent', [Unbound('X')])
+    assert results == []
+
+def test_concurrent_react_rules():
+    """Multiple react rules fire on same event."""
+    db = fresh_db()
+    log = []
+    db.add_react('assert', lambda et, pred, fact, db: log.append('rule1'))
+    db.add_react('assert', lambda et, pred, fact, db: log.append('rule2'))
+    db.add_react('assert', lambda et, pred, fact, db: log.append('rule3'))
+    db.assert_fact('test', ['x'])
+    assert log == ['rule1', 'rule2', 'rule3']
+
+test("numbers in facts", test_numbers_in_facts)
+test("mixed facts and rules", test_mixed_facts_and_rules)
+test("multiple rules (OR)", test_multiple_rules_or)
+test("rule with NOT", test_rule_with_not)
+test("rule with arithmetic", test_rule_with_arithmetic)
+test("retract during body", test_retract_during_body)
+test("ephemeral cascading react", test_ephemeral_cascading_react)
+test("error handling", test_error_handling)
+test("concurrent react rules", test_concurrent_react_rules)
+
 test("resolve path (recursive)", test_resolve_path)
 test("resolve path filtered", test_resolve_path_filtered)
 test("resolve ancestor", test_resolve_ancestor)

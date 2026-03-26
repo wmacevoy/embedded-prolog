@@ -7,3 +7,6 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY . .
+
+# Build qjson SQLite extension for Datalog cross-path queries
+RUN cd vendor/qjson && make qjson_ext.so 2>/dev/null || true
