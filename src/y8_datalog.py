@@ -54,13 +54,16 @@ class Y8Datalog:
         if self._root_id is None:
             self._root_id = self._adapter['store']({})
             self._adapter['commit']()
-        # Try loading qjson extension for query support
+        # Try loading qjson extension for cross-path comparison
         try:
             self._conn.enable_load_extension(True)
-            ext_dir = os.path.join(os.path.dirname(__file__), '..',
-                                   'vendor', 'qjson')
-            for ext in ['qjson_ext', 'qjson_ext.dylib', 'qjson_ext.so']:
-                path = os.path.join(ext_dir, ext.split('.')[0])
+            base = os.path.dirname(os.path.abspath(__file__))
+            ext_paths = [
+                os.path.join(base, '..', 'vendor', 'qjson', 'qjson_ext'),
+                os.path.join(base, '..', 'vendor', 'qjson', 'native', 'qjson_ext'),
+            ]
+            for path in ext_paths:
+                path = os.path.abspath(path)
                 try:
                     self._conn.load_extension(path)
                     self._has_ext = True
@@ -280,6 +283,154 @@ class Y8Datalog:
         self._adapter['remove'](self._root_id)
         self._root_id = self._adapter['store'](root)
         self._adapter['commit']()
+
+    # ── Resolve (facts + rules) ─────────────────────────────
+
+    def resolve(self, predicate, pattern=None):
+        """Resolve a predicate: check facts, then compile rules.
+
+        predicate — string name
+        pattern — list where None/Unbound means unbound.
+
+        Returns list of binding dicts: [{'X': 'alice', 'Y': 'bob'}, ...]
+        For facts, bindings map pattern positions to values.
+        For rules, bindings come from head variable positions.
+        """
+        results = []
+
+        # 1. Direct fact lookup
+        facts = self.query(predicate, pattern)
+        for fact in facts:
+            bindings = {}
+            if pattern:
+                for i, arg in enumerate(pattern):
+                    if isinstance(arg, Unbound) and arg.name:
+                        bindings[arg.name] = fact[i]
+                    elif arg is None:
+                        bindings[str(i)] = fact[i]
+            results.append(bindings)
+
+        # 2. Rule resolution
+        root = self._adapter['load'](self._root_id)
+        if root and 'rules' in root and predicate in root['rules']:
+            rule_set = root['rules'][predicate]
+            entries = rule_set.entries if isinstance(rule_set, QMap) else list(rule_set.items())
+            for clause, _ in entries:
+                rule_results = self._resolve_rule(clause, pattern)
+                results.extend(rule_results)
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for b in results:
+            key = tuple(sorted(b.items()))
+            if key not in seen:
+                seen.add(key)
+                unique.append(b)
+        return unique
+
+    def _resolve_rule(self, clause, pattern):
+        """Compile a rule clause to qjson_select calls and execute.
+
+        clause — [head, body1, body2, ...]
+        pattern — query pattern for the head (None/Unbound = any)
+
+        Returns list of binding dicts.
+        """
+        head = clause[0]
+        body = clause[1:]
+        if not body:
+            return []
+
+        # Map variables to their locations: var_name → [(goal_idx, arg_pos)]
+        var_locs = {}
+        for gi, goal in enumerate(body):
+            for ai in range(1, len(goal)):
+                arg = goal[ai]
+                if isinstance(arg, Unbound) and arg.name:
+                    if arg.name not in var_locs:
+                        var_locs[arg.name] = []
+                    var_locs[arg.name].append((gi, ai - 1))
+
+        # Assign K-variable names to body goals
+        k_names = ['K%d' % (i + 1) for i in range(len(body))]
+
+        # Build WHERE conditions
+        conditions = []
+
+        # Shared variables across body goals → equijoin
+        for var_name, locs in var_locs.items():
+            if len(locs) >= 2:
+                for j in range(1, len(locs)):
+                    gi_a, ai_a = locs[0]
+                    gi_b, ai_b = locs[j]
+                    conditions.append('.%s[%s][%d] == .%s[%s][%d]' % (
+                        body[gi_a][0], k_names[gi_a], ai_a,
+                        body[gi_b][0], k_names[gi_b], ai_b))
+
+        # Concrete values from pattern → filter conditions
+        if pattern:
+            for hi in range(len(pattern)):
+                arg = pattern[hi]
+                if arg is not None and not isinstance(arg, Unbound):
+                    head_arg = head[hi + 1] if hi + 1 < len(head) else None
+                    if isinstance(head_arg, Unbound) and head_arg.name in var_locs:
+                        gi, ai = var_locs[head_arg.name][0]
+                        val = '"%s"' % arg if isinstance(arg, str) else stringify(arg)
+                        conditions.append('.%s[%s][%d] == %s' % (
+                            body[gi][0], k_names[gi], ai, val))
+
+        where_expr = ' AND '.join(conditions) if conditions else None
+
+        # For each head variable, find its location in a body goal and
+        # run a separate select to get that specific arg value
+        head_vars = []
+        for hi in range(1, len(head)):
+            head_arg = head[hi]
+            if isinstance(head_arg, Unbound) and head_arg.name:
+                if head_arg.name in var_locs:
+                    gi, ai = var_locs[head_arg.name][0]
+                    head_vars.append((head_arg.name, gi, ai))
+
+        if not head_vars:
+            return []
+
+        # Query each head variable's value
+        # Strategy: for each head var, select its arg from the body goal,
+        # with the same WHERE. K bindings tie the rows together.
+        var_results = {}
+        for var_name, gi, ai in head_vars:
+            select_path = '.%s[%s][%d]' % (body[gi][0], k_names[gi], ai)
+            try:
+                rows = qjson_select(self._conn, self._root_id,
+                                    select_path, where_expr=where_expr,
+                                    prefix=self._prefix, has_ext=self._has_ext)
+                var_results[var_name] = rows
+            except Exception:
+                var_results[var_name] = []
+
+        # Combine: join variable results by their K bindings
+        if not var_results:
+            return []
+
+        # Use first variable's results as the base
+        first_var = head_vars[0][0]
+        base_rows = var_results[first_var]
+
+        results = []
+        for vid, k_bindings in base_rows:
+            bindings = {first_var: self._adapter['load'](vid)}
+            # Match other variables by K bindings
+            k_key = tuple(sorted(k_bindings.items()))
+            for var_name, gi, ai in head_vars[1:]:
+                for other_vid, other_kb in var_results[var_name]:
+                    other_key = tuple(sorted(other_kb.items()))
+                    if other_key == k_key:
+                        bindings[var_name] = self._adapter['load'](other_vid)
+                        break
+            if len(bindings) == len(head_vars):
+                results.append(bindings)
+        return results
 
     # ── React rules ───────────────────────────────────────────
 

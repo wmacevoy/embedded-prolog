@@ -178,6 +178,78 @@ def test_add_rule():
     assert 'rules' in root
     assert 'grandparent' in root['rules']
 
+# ── Resolve (facts + rules) ─────────────────────────────────
+
+def test_resolve_facts():
+    db = fresh_db()
+    db.assert_fact('parent', ['alice', 'bob'])
+    db.assert_fact('parent', ['bob', 'carol'])
+    results = db.resolve('parent', [Unbound('X'), 'bob'])
+    assert len(results) == 1
+    assert results[0]['X'] == 'alice'
+
+def test_resolve_all_facts():
+    db = fresh_db()
+    db.assert_fact('parent', ['alice', 'bob'])
+    db.assert_fact('parent', ['bob', 'carol'])
+    results = db.resolve('parent', [Unbound('X'), Unbound('Y')])
+    assert len(results) == 2
+    names = sorted([r['X'] for r in results])
+    assert names == ['alice', 'bob']
+
+def test_resolve_grandparent():
+    """grandparent(GP, GC) :- parent(GP, Y), parent(Y, GC)."""
+    db = fresh_db()
+    db.assert_fact('parent', ['alice', 'bob'])
+    db.assert_fact('parent', ['bob', 'carol'])
+    db.assert_fact('parent', ['carol', 'dave'])
+
+    db.add_rule([
+        ['grandparent', Unbound('GP'), Unbound('GC')],
+        ['parent', Unbound('GP'), Unbound('Y')],
+        ['parent', Unbound('Y'), Unbound('GC')]
+    ])
+
+    results = db.resolve('grandparent', [Unbound('GP'), Unbound('GC')])
+    gps = sorted([(r['GP'], r['GC']) for r in results])
+    assert ('alice', 'carol') in gps, "alice is grandparent of carol"
+    assert ('bob', 'dave') in gps, "bob is grandparent of dave"
+    assert len(gps) == 2
+
+def test_resolve_grandparent_filtered():
+    """grandparent(alice, ?GC) — filter by concrete arg."""
+    db = fresh_db()
+    db.assert_fact('parent', ['alice', 'bob'])
+    db.assert_fact('parent', ['bob', 'carol'])
+    db.assert_fact('parent', ['carol', 'dave'])
+
+    db.add_rule([
+        ['grandparent', Unbound('GP'), Unbound('GC')],
+        ['parent', Unbound('GP'), Unbound('Y')],
+        ['parent', Unbound('Y'), Unbound('GC')]
+    ])
+
+    results = db.resolve('grandparent', ['alice', Unbound('GC')])
+    assert len(results) == 1
+    assert results[0]['GC'] == 'carol'
+
+def test_resolve_uncle():
+    """uncle(X, Y) :- parent(Z, Y), sibling(X, Z)."""
+    db = fresh_db()
+    db.assert_fact('parent', ['bob', 'carol'])
+    db.assert_fact('sibling', ['alice', 'bob'])
+
+    db.add_rule([
+        ['uncle', Unbound('X'), Unbound('Y')],
+        ['parent', Unbound('Z'), Unbound('Y')],
+        ['sibling', Unbound('X'), Unbound('Z')]
+    ])
+
+    results = db.resolve('uncle', [Unbound('X'), Unbound('Y')])
+    assert len(results) >= 1
+    assert any(r['X'] == 'alice' and r['Y'] == 'carol' for r in results), \
+        "alice is uncle/aunt of carol"
+
 # ── Run ──────────────────────────────────────────────────────
 
 print("y8_datalog.py")
@@ -196,6 +268,11 @@ test("ephemeral", test_ephemeral)
 test("native", test_native)
 test("send", test_send)
 test("add rule", test_add_rule)
+test("resolve facts", test_resolve_facts)
+test("resolve all facts", test_resolve_all_facts)
+test("resolve grandparent", test_resolve_grandparent)
+test("resolve grandparent filtered", test_resolve_grandparent_filtered)
+test("resolve uncle", test_resolve_uncle)
 
 print("\n%d tests: %d passed, %d failed" % (passed + failed, passed, failed))
 if failed:
