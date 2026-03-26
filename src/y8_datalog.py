@@ -30,7 +30,7 @@ if _vendor not in sys.path:
 
 from qjson import parse, stringify, Unbound, QMap
 from qjson_sql import qjson_sql_adapter
-from qjson_query import qjson_select
+from qjson_query import qjson_select, qjson_closure
 
 
 class Y8Datalog:
@@ -342,6 +342,15 @@ class Y8Datalog:
         if not body:
             return []
 
+        head_pred = head[0]
+
+        # Detect recursion: body goal references head predicate
+        # For binary relations, use qjson_closure for transitive closure
+        recursive_goals = [g for g in body if g[0] == head_pred]
+        if recursive_goals and len(head) == 3:
+            return self._resolve_recursive(clause, pattern)
+
+
         # Map variables to their locations: var_name → [(goal_idx, arg_pos)]
         var_locs = {}
         for gi, goal in enumerate(body):
@@ -430,6 +439,58 @@ class Y8Datalog:
                         break
             if len(bindings) == len(head_vars):
                 results.append(bindings)
+        return results
+
+    def _resolve_recursive(self, clause, pattern):
+        """Resolve a recursive rule via qjson_closure (transitive closure).
+
+        Works for binary relations: pred(X, Y) :- base(X, Y) + pred chain.
+        Uses WITH RECURSIVE under the hood.
+        """
+        head = clause[0]
+        body = clause[1:]
+        head_pred = head[0]
+
+        # Find the base predicate (non-recursive body goal)
+        base_goals = [g for g in body if g[0] != head_pred]
+        if not base_goals:
+            return []  # all recursive, no base case
+
+        base_pred = base_goals[0][0]
+
+        # Build from/to filters from pattern
+        where_from = None
+        where_to = None
+        if pattern:
+            if len(pattern) >= 1 and pattern[0] is not None and not isinstance(pattern[0], Unbound):
+                where_from = str(pattern[0])
+            if len(pattern) >= 2 and pattern[1] is not None and not isinstance(pattern[1], Unbound):
+                where_to = str(pattern[1])
+
+        try:
+            pairs = qjson_closure(self._conn, self._root_id,
+                                  '.%s' % base_pred,
+                                  where_from=where_from,
+                                  where_to=where_to,
+                                  prefix=self._prefix)
+        except Exception:
+            return []
+
+        # Map pairs to bindings (closure returns QJSON strings, parse them)
+        results = []
+        for from_val, to_val in pairs:
+            from_parsed = parse(from_val) if isinstance(from_val, str) else from_val
+            to_parsed = parse(to_val) if isinstance(to_val, str) else to_val
+            bindings = {}
+            if len(head) >= 2:
+                h1 = head[1]
+                if isinstance(h1, Unbound) and h1.name:
+                    bindings[h1.name] = from_parsed
+            if len(head) >= 3:
+                h2 = head[2]
+                if isinstance(h2, Unbound) and h2.name:
+                    bindings[h2.name] = to_parsed
+            results.append(bindings)
         return results
 
     # ── React rules ───────────────────────────────────────────

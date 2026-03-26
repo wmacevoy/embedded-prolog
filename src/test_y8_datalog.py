@@ -274,6 +274,80 @@ test("resolve grandparent", test_resolve_grandparent)
 test("resolve grandparent filtered", test_resolve_grandparent_filtered)
 test("resolve uncle", test_resolve_uncle)
 
+# ── Recursive rules (transitive closure) ─────────────────────
+
+def test_resolve_path():
+    """path(X,Y) :- edge(X,Y). path(X,Y) :- edge(X,Z), path(Z,Y)."""
+    db = fresh_db()
+    db.assert_fact('edge', ['a', 'b'])
+    db.assert_fact('edge', ['b', 'c'])
+    db.assert_fact('edge', ['c', 'd'])
+
+    # Base case
+    db.add_rule([
+        ['path', Unbound('X'), Unbound('Y')],
+        ['edge', Unbound('X'), Unbound('Y')]
+    ])
+    # Recursive case
+    db.add_rule([
+        ['path', Unbound('X'), Unbound('Y')],
+        ['edge', Unbound('X'), Unbound('Z')],
+        ['path', Unbound('Z'), Unbound('Y')]
+    ])
+
+    results = db.resolve('path', ['a', Unbound('Y')])
+    targets = sorted([r['Y'] for r in results])
+    assert 'b' in targets, "a reaches b"
+    assert 'c' in targets, "a reaches c"
+    assert 'd' in targets, "a reaches d"
+
+def test_resolve_path_filtered():
+    """path(a, d) — specific start and end."""
+    db = fresh_db()
+    db.assert_fact('edge', ['a', 'b'])
+    db.assert_fact('edge', ['b', 'c'])
+    db.assert_fact('edge', ['c', 'd'])
+
+    db.add_rule([
+        ['path', Unbound('X'), Unbound('Y')],
+        ['edge', Unbound('X'), Unbound('Y')]
+    ])
+    db.add_rule([
+        ['path', Unbound('X'), Unbound('Y')],
+        ['edge', Unbound('X'), Unbound('Z')],
+        ['path', Unbound('Z'), Unbound('Y')]
+    ])
+
+    results = db.resolve('path', ['a', 'd'])
+    assert len(results) >= 1, "a reaches d"
+
+def test_resolve_ancestor():
+    """ancestor(X,Y) :- parent(X,Y). ancestor(X,Y) :- parent(X,Z), ancestor(Z,Y)."""
+    db = fresh_db()
+    db.assert_fact('parent', ['alice', 'bob'])
+    db.assert_fact('parent', ['bob', 'carol'])
+    db.assert_fact('parent', ['carol', 'dave'])
+
+    db.add_rule([
+        ['ancestor', Unbound('X'), Unbound('Y')],
+        ['parent', Unbound('X'), Unbound('Y')]
+    ])
+    db.add_rule([
+        ['ancestor', Unbound('X'), Unbound('Y')],
+        ['parent', Unbound('X'), Unbound('Z')],
+        ['ancestor', Unbound('Z'), Unbound('Y')]
+    ])
+
+    results = db.resolve('ancestor', ['alice', Unbound('Y')])
+    descendants = sorted([r['Y'] for r in results])
+    assert 'bob' in descendants, "alice ancestor of bob"
+    assert 'carol' in descendants, "alice ancestor of carol"
+    assert 'dave' in descendants, "alice ancestor of dave"
+
+test("resolve path (recursive)", test_resolve_path)
+test("resolve path filtered", test_resolve_path_filtered)
+test("resolve ancestor", test_resolve_ancestor)
+
 print("\n%d tests: %d passed, %d failed" % (passed + failed, passed, failed))
 if failed:
     sys.exit(1)
