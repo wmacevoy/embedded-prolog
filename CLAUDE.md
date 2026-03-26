@@ -55,25 +55,9 @@ SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 
 | Module | Role | Depends on |
 |--------|------|------------|
-| `y8-datalog.js` / `y8_datalog.py` | **Datalog layer**: assert/retract/resolve/react/ephemeral/send | vendor/qjson |
+| `y8-datalog.js` / `y8_datalog.py` | Datalog engine: assert/retract/resolve/react/ephemeral/send | vendor/qjson |
 | `y8-loader.js` / `y8_loader.py` | Prolog text → Datalog API calls | parser + y8-datalog |
-| `prolog-engine.js` / `prolog.py` | Legacy in-memory engine (CPS solver) | nothing |
-| `parser.js` | Prolog text parser + QJSON literals (N/M/L suffixes) | prolog-engine |
-| `loader.js` | `loadString`/`loadFile` (legacy) | parser |
-| `store.js` | Key/value shim: `set/get/on/off`, no Prolog needed | engine + reactive |
-| `serve.js` | HTTP handler: routes are `handle/4` Prolog rules | engine |
-| `reactive.js` / `reactive.py` | createSignal, createMemo, createEffect | nothing |
-| `reactive-prolog.js` / `reactive_prolog.py` | Bridge: createReactiveEngine, bump, createQuery | reactive + engine |
-| `sync.js` | serialize/deserialize terms, SyncEngine | engine |
-| `sync-client.js` | Offline-capable sync client | sync |
-| `tracer.js` | Query execution tracer | engine |
-| `persist.js` / `persist.py` | SQLite/PG persistence: `persist(engine, db)` | engine + adapter |
-| `persist-sqlite.js` / `persist_sqlite.py` | SQLite adapter (WAL mode) | sqlite3 |
-| `persist-sqlcipher.js` / `persist_sqlcipher.py` | SQLCipher adapter (encrypted) | sqlcipher |
-| `persist-pg.js` / `persist_pg.py` | PostgreSQL adapter | pg driver |
-| `persist-wasm.js` | Bridge: WASM SQLite → persist adapter (browser) | WASM binary |
-| `qsql.js` / `qsql.py` | QSQL: per-predicate typed columns + interval arithmetic | engine + adapter |
-| `fossilize.js` / `fossilize.py` | `fossilize()` (global freeze) + `mineralize()` (selective lock) | engine |
+| `parser.js` | Prolog text parser + QJSON literals (N/M/L suffixes) | nothing |
 
 ### Vendor (`vendor/`)
 

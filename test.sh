@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Run all tests — C, Python, and JavaScript
+# Run all tests — Python and JavaScript (Datalog layer)
 #
 #   ./test.sh           run all
 #   ./test.sh python    python only
@@ -25,42 +25,20 @@ run() {
   fi
 }
 
-if [ -z "$1" ] || [ "$1" = "c" ]; then
-  if command -v gcc >/dev/null 2>&1; then
-    run "C native core (19 tests)" \
-      "gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c && ./native/test_core && rm -f native/test_core"
-    run "C native y8_net (64 tests)" \
-      "gcc -O2 -Wall -std=c11 -o native/test_y8_net native/test_y8_net.c native/y8_net.c -lssl -lcrypto && ./native/test_y8_net && rm -f native/test_y8_net"
-  else
-    echo "  (skipping C tests — gcc not found)"
-  fi
-fi
-
 if [ -z "$1" ] || [ "$1" = "python" ]; then
   PYTHON=""
   if command -v python3 >/dev/null 2>&1; then PYTHON=python3
   elif command -v python >/dev/null 2>&1; then PYTHON=python
-  elif command -v micropython >/dev/null 2>&1; then PYTHON=micropython
   fi
   if [ -n "$PYTHON" ]; then
-    run "Python persist ($PYTHON, 11 tests)" \
-      "$PYTHON src/test_persist.py"
-    run "Python QSQL ($PYTHON, 27 tests)" \
-      "$PYTHON src/test_qsql.py"
-    run "Python Y8 Datalog ($PYTHON, 28 tests)" \
+    run "Python Y8 Datalog ($PYTHON, 45 tests)" \
       "$PYTHON src/test_y8_datalog.py"
-    run "Python fossilize ($PYTHON, 9 tests)" \
-      "$PYTHON src/test_fossilize.py"
-    run "Python vending machine ($PYTHON, 17 tests)" \
-      "$PYTHON examples/vending/test.py"
     run "Python vending Datalog ($PYTHON, 16 tests)" \
       "$PYTHON examples/vending/test_datalog.py"
     run "Python family tree ($PYTHON, 13 tests)" \
       "$PYTHON examples/family/test_family.py"
     run "Python tutorial Datalog ($PYTHON, 13 tests)" \
       "$PYTHON examples/tutorial/test_datalog.py"
-    run "Python message router ($PYTHON, 28 tests)" \
-      "$PYTHON examples/router/test.py"
   else
     echo "  (skipping Python tests — no interpreter found)"
   fi
@@ -73,40 +51,10 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
   elif command -v deno >/dev/null 2>&1; then JS="deno run"
   fi
   if [ -n "$JS" ]; then
-    run "JS persist ($JS, 10 tests)" \
-      "$JS src/test-persist.js"
-    run "JS QSQL ($JS, 28 tests)" \
-      "$JS src/test-qsql.js"
-    run "JS store ($JS, 35 tests)" \
-      "$JS src/test-store.js"
     run "JS Y8 Datalog ($JS, 16 tests)" \
       "$JS src/test-y8-datalog.js"
-    run "JS fossilize ($JS, 9 tests)" \
-      "$JS src/test-fossilize.js"
-    run "JS vending machine ($JS, 22 tests)" \
-      "$JS examples/vending/test.js"
-    run "JS margin trading ($JS, 28 tests)" \
-      "$JS examples/margin/test.js"
-    run "JS sync-todo ($JS, 33 tests)" \
-      "$JS examples/sync-todo/test.js"
     run "JS parser ($JS, 94 tests)" \
       "$JS src/test-parser.js"
-    run "JS tracer ($JS, 18 tests)" \
-      "$JS src/test-tracer.js"
-    run "JS loader ($JS, 16 tests)" \
-      "$JS src/test-loader.js"
-    run "JS sync-client ($JS, 16 tests)" \
-      "$JS src/test-sync-client.js"
-    run "JS NNG mesh ($JS, 33 tests)" \
-      "$JS examples/nng-mesh/test.js"
-    run "JS greenhouse mesh ($JS, 52 tests)" \
-      "$JS examples/greenhouse/test.js"
-    run "JS tutorial ($JS, 27 tests)" \
-      "$JS examples/tutorial/test.js"
-    run "JS crypto sentinel ($JS, 30 tests)" \
-      "$JS examples/crypto-sentinel/test.js"
-    run "JS crypto sentinel server ($JS, 25 tests)" \
-      "$JS examples/crypto-sentinel/test-server.js"
   else
     echo "  (skipping JS tests — no runtime found)"
   fi

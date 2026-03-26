@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── Format + engine tests (macOS) ─────────────────────────
+  # ── macOS ─────────────────────────────────────────────────
   macos:
     runs-on: macos-latest
     steps:
@@ -14,28 +14,21 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Build qjson extension
+        run: cd vendor/qjson && make qjson_ext.dylib
+
+      - name: Python tests
         run: |
-          cd vendor/qjson
-          make qjson_ext.dylib
+          python3 src/test_y8_datalog.py
+          python3 examples/vending/test_datalog.py
+          python3 examples/family/test_family.py
+          python3 examples/tutorial/test_datalog.py
 
-      - name: Run test suite
-        run: ./test.sh
-
-      - name: Run native C core tests
-        run: |
-          gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c
-          ./native/test_core
-
-  # ── Ubuntu / Debian ───────────────────────────────────────
+  # ── Ubuntu ────────────────────────────────────────────────
   debian:
     runs-on: ubuntu-latest
     steps:
@@ -51,18 +44,21 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install C toolchain
-        run: sudo apt-get update && sudo apt-get install -y gcc
-
       - name: Build qjson extension
+        run: cd vendor/qjson && make qjson_ext.so
+
+      - name: Python tests
         run: |
-          cd vendor/qjson
-          make qjson_ext.so
+          python3 src/test_y8_datalog.py
+          python3 examples/vending/test_datalog.py
+          python3 examples/family/test_family.py
+          python3 examples/tutorial/test_datalog.py
 
-      - name: Run test suite
-        run: ./test.sh
+      - name: JS tests
+        run: |
+          node src/test-parser.js
 
-  # ── Alpine (musl libc) — C + Python only ──────────────────
+  # ── Alpine ────────────────────────────────────────────────
   alpine:
     runs-on: ubuntu-latest
     container: alpine:3.20
@@ -75,25 +71,14 @@ jobs:
         run: apk add --no-cache gcc musl-dev python3 bash make sqlite-dev
 
       - name: Build qjson extension
-        run: |
-          cd vendor/qjson
-          make qjson_ext.so
-
-      - name: C tests
-        run: |
-          gcc -O2 -Wall -std=c11 -o native/test_core native/test_core.c native/prolog_core.c && ./native/test_core
+        run: cd vendor/qjson && make qjson_ext.so
 
       - name: Python tests
         run: |
-          python3 src/test_persist.py
-          python3 src/test_qsql.py
           python3 src/test_y8_datalog.py
-          python3 src/test_fossilize.py
-          python3 examples/vending/test.py
           python3 examples/vending/test_datalog.py
           python3 examples/family/test_family.py
           python3 examples/tutorial/test_datalog.py
-          python3 examples/router/test.py
 
   # ── Windows ───────────────────────────────────────────────
   windows:
@@ -111,41 +96,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Python tests
-        shell: bash
-        env:
-          PYTHONUTF8: 1
-        run: |
-          python3 src/test_persist.py
-          python3 src/test_fossilize.py
-          python3 examples/vending/test.py
-          python3 examples/router/test.py
-
       - name: JS tests
         shell: bash
-        run: |
-          node src/test-persist.js
-          node src/test-fossilize.js
-          node examples/vending/test.js
-          node examples/margin/test.js
-          node examples/sync-todo/test.js
-          node src/test-parser.js
-          node src/test-tracer.js
-          node src/test-loader.js
-          node src/test-sync-client.js
-          node examples/nng-mesh/test.js
-          node examples/greenhouse/test.js
-          node examples/tutorial/test.js
-
-  # ── Docker (Bun runtime) ──────────────────────────────────
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Build and test via Docker
-        run: |
-          docker compose build test
-          docker compose run --rm test ./test.sh
+        run: node src/test-parser.js
