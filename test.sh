@@ -47,6 +47,8 @@ if [ -z "$1" ] || [ "$1" = "python" ]; then
       "$PYTHON src/test_persist.py"
     run "Python QSQL ($PYTHON, 27 tests)" \
       "$PYTHON src/test_qsql.py"
+    run "Python Y8 Datalog ($PYTHON, 28 tests)" \
+      "$PYTHON src/test_y8_datalog.py"
     run "Python fossilize ($PYTHON, 9 tests)" \
       "$PYTHON src/test_fossilize.py"
     run "Python vending machine ($PYTHON, 17 tests)" \
@@ -71,6 +73,8 @@ if [ -z "$1" ] || [ "$1" = "js" ]; then
       "$JS src/test-qsql.js"
     run "JS store ($JS, 35 tests)" \
       "$JS src/test-store.js"
+    run "JS Y8 Datalog ($JS, 16 tests)" \
+      "$JS src/test-y8-datalog.js"
     run "JS fossilize ($JS, 9 tests)" \
       "$JS src/test-fossilize.js"
     run "JS vending machine ($JS, 22 tests)" \
