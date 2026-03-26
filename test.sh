@@ -53,6 +53,12 @@ if [ -z "$1" ] || [ "$1" = "python" ]; then
       "$PYTHON src/test_fossilize.py"
     run "Python vending machine ($PYTHON, 17 tests)" \
       "$PYTHON examples/vending/test.py"
+    run "Python vending Datalog ($PYTHON, 16 tests)" \
+      "$PYTHON examples/vending/test_datalog.py"
+    run "Python family tree ($PYTHON, 13 tests)" \
+      "$PYTHON examples/family/test_family.py"
+    run "Python tutorial Datalog ($PYTHON, 13 tests)" \
+      "$PYTHON examples/tutorial/test_datalog.py"
     run "Python message router ($PYTHON, 28 tests)" \
       "$PYTHON examples/router/test.py"
   else

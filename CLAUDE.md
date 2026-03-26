@@ -33,14 +33,20 @@ docker compose run --rm wasm-build
 
 ```
 Application (your I/O, UI, hardware)
-    ↕  native hooks (persist, crypto, I/O, GPIO)
+    ↕  native hooks (crypto, I/O, GPIO)
     ↕  send/collect (outgoing messages)
-y8-prolog engine (~300 lines)
-    ephemeral → react rules (pattern-matched dispatch)
-    assert/retract → react(assert/retract) rules
-    QJSON objects as first-class terms
+y8 reactive layer (y8_datalog / y8-datalog.js)
+    ephemeral events → react rules (never touch SQL)
+    assert/retract → set operations on predicates
+    resolve → SQL joins (rules) + transitive closure (recursion)
+    execute_body → is/2, not/1, findall/3, comparisons
     ↕
-QSQL — per-predicate typed SQLite with [lo, str, hi] projection
+vendor/qjson (v1.1.3)
+    QJSON format + [lo, str, hi] projection
+    SQL adapter (normalized 8-table schema)
+    Query translator (paths → SQL JOINs, cross-path comparison)
+    Constraint solver (qjson_solve)
+    Transitive closure (qjson_closure, WITH RECURSIVE)
     ↕
 SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 ```
@@ -49,11 +55,13 @@ SQLite / SQLCipher (encrypted at rest) / WASM SQLite (browser)
 
 | Module | Role | Depends on |
 |--------|------|------------|
+| `y8-datalog.js` / `y8_datalog.py` | **Datalog layer**: assert/retract/resolve/react/ephemeral/send | vendor/qjson |
+| `y8-loader.js` / `y8_loader.py` | Prolog text → Datalog API calls | parser + y8-datalog |
+| `prolog-engine.js` / `prolog.py` | Legacy in-memory engine (CPS solver) | nothing |
+| `parser.js` | Prolog text parser + QJSON literals (N/M/L suffixes) | prolog-engine |
+| `loader.js` | `loadString`/`loadFile` (legacy) | parser |
 | `store.js` | Key/value shim: `set/get/on/off`, no Prolog needed | engine + reactive |
 | `serve.js` | HTTP handler: routes are `handle/4` Prolog rules | engine |
-| `prolog-engine.js` / `prolog.py` | Core engine: unification, solve, builtins | nothing |
-| `parser.js` | Prolog text parser + QJSON literals (N/M/L suffixes) | prolog-engine |
-| `loader.js` | `loadString`/`loadFile` | parser |
 | `reactive.js` / `reactive.py` | createSignal, createMemo, createEffect | nothing |
 | `reactive-prolog.js` / `reactive_prolog.py` | Bridge: createReactiveEngine, bump, createQuery | reactive + engine |
 | `sync.js` | serialize/deserialize terms, SyncEngine | engine |
