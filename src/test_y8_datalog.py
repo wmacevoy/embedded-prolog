@@ -412,6 +412,113 @@ test("load recursive", test_load_recursive)
 test("load with comments", test_load_with_comments)
 test("load numbers", test_load_numbers)
 
+# ── Body execution engine ────────────────────────────────────
+
+def test_execute_is():
+    db = fresh_db()
+    bindings = {}
+    ok = db.execute_body([
+        ['is', Unbound('X'), ['+', 3, 4]]
+    ], bindings)
+    assert ok, "is should succeed"
+    assert bindings['X'] == 7, "X should be 7, got %s" % bindings.get('X')
+
+def test_execute_comparison():
+    db = fresh_db()
+    assert db.execute_body([['>', 5, 3]])
+    assert not db.execute_body([['>', 3, 5]])
+    assert db.execute_body([['>=', 5, 5]])
+    assert db.execute_body([['=<', 3, 5]])
+
+def test_execute_not():
+    db = fresh_db()
+    db.assert_fact('color', ['red'])
+    assert db.execute_body([['not', ['color', 'blue']]])
+    assert not db.execute_body([['not', ['color', 'red']]])
+
+def test_execute_assert_retract():
+    db = fresh_db()
+    db.execute_body([
+        ['assert', ['counter', 0]]
+    ])
+    results = db.query('counter')
+    assert len(results) == 1
+    assert results[0] == [0], "got %s" % results[0]
+
+    db.execute_body([
+        ['retract', ['counter', 0]],
+        ['assert', ['counter', 1]]
+    ])
+    results = db.query('counter')
+    assert len(results) == 1
+    assert results[0] == [1]
+
+def test_execute_query_and_bind():
+    db = fresh_db()
+    db.assert_fact('credit', [100])
+    bindings = {}
+    ok = db.execute_body([
+        ['credit', Unbound('C')]
+    ], bindings)
+    assert ok
+    assert bindings['C'] == 100, "C should be 100, got %s" % bindings.get('C')
+
+def test_execute_coin_insert():
+    """Simulate vending machine coin insert."""
+    db = fresh_db()
+    db.assert_fact('credit', [0])
+
+    bindings = {}
+    # credit(Old), is(New, Old + 25), retract(credit(Old)), assert(credit(New))
+    ok = db.execute_body([
+        ['credit', Unbound('Old')],
+        ['is', Unbound('New'), ['+', Unbound('Old'), 25]],
+        ['retract', ['credit', Unbound('Old')]],
+        ['assert', ['credit', Unbound('New')]],
+    ], bindings)
+    assert ok
+    assert bindings['New'] == 25
+
+    results = db.query('credit')
+    assert len(results) == 1
+    assert results[0] == [25], "credit should be 25, got %s" % results[0]
+
+def test_execute_findall():
+    db = fresh_db()
+    db.assert_fact('color', ['red'])
+    db.assert_fact('color', ['green'])
+    db.assert_fact('color', ['blue'])
+
+    bindings = {}
+    ok = db.execute_body([
+        ['findall', Unbound('X'), ['color', Unbound('X')], Unbound('Bag')]
+    ], bindings)
+    assert ok
+    assert len(bindings['Bag']) == 3
+
+def test_react_with_body():
+    """React clause: on assert to credit, if credit > 100, assert rich."""
+    db = fresh_db()
+    db.add_react_clause('assert', [
+        ['credit', Unbound('C')],
+        ['>', Unbound('C'), 100],
+        ['assert', ['rich', True]]
+    ])
+    db.assert_fact('credit', [50])
+    assert len(db.query('rich')) == 0, "50 is not rich"
+    db.retract('credit', [50])
+    db.assert_fact('credit', [200])
+    assert len(db.query('rich')) == 1, "200 should be rich"
+
+test("execute is/2", test_execute_is)
+test("execute comparisons", test_execute_comparison)
+test("execute not/1", test_execute_not)
+test("execute assert/retract", test_execute_assert_retract)
+test("execute query and bind", test_execute_query_and_bind)
+test("execute coin insert", test_execute_coin_insert)
+test("execute findall", test_execute_findall)
+test("react with body clause", test_react_with_body)
+
 test("resolve path (recursive)", test_resolve_path)
 test("resolve path filtered", test_resolve_path_filtered)
 test("resolve ancestor", test_resolve_ancestor)

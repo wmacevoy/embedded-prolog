@@ -493,30 +493,217 @@ class Y8Datalog:
             results.append(bindings)
         return results
 
+    # ── Body execution engine ─────────────────────────────────
+    # Executes body goals in sequence with accumulating bindings.
+    # Handles: query goals, not, assert, retract, retractall,
+    # is, >, <, >=, =<, =:=, =\=, findall.
+
+    def execute_body(self, body, bindings=None):
+        """Execute a list of body goals with bindings.
+
+        body — list of goals (each is [functor, arg1, arg2, ...])
+        bindings — dict of var_name → value (modified in place)
+
+        Returns True if all goals succeed.
+        """
+        if bindings is None:
+            bindings = {}
+        for goal in body:
+            if not self._execute_goal(goal, bindings):
+                return False
+        return True
+
+    def _execute_goal(self, goal, bindings):
+        """Execute a single goal. Returns True if succeeds."""
+        if not isinstance(goal, list) or len(goal) == 0:
+            return False
+
+        functor = goal[0]
+        args = goal[1:]
+
+        # ── Negation ──────────────────────────────────────
+        if functor in ('not', '\\+'):
+            inner = self._resolve_term(args[0], bindings)
+            return not self._execute_goal(inner, dict(bindings))
+
+        # ── Assert ────────────────────────────────────────
+        if functor in ('assert', 'assertz'):
+            inner = self._resolve_term(args[0], bindings)
+            if isinstance(inner, list) and len(inner) >= 1:
+                self.assert_fact(inner[0], inner[1:])
+            return True
+
+        # ── Retract ───────────────────────────────────────
+        if functor == 'retract':
+            inner = self._resolve_term(args[0], bindings)
+            if isinstance(inner, list) and len(inner) >= 1:
+                return self.retract(inner[0], inner[1:])
+            return False
+
+        # ── Retractall ────────────────────────────────────
+        if functor == 'retractall':
+            inner = self._resolve_term(args[0], bindings)
+            if isinstance(inner, list) and len(inner) >= 1:
+                self.retract_all(inner[0], inner[1:])
+            return True
+
+        # ── Arithmetic is/2 ───────────────────────────────
+        if functor == 'is':
+            lhs = args[0]
+            rhs = args[1]
+            val = self._eval_arith(rhs, bindings)
+            if val is None:
+                return False
+            if isinstance(lhs, Unbound) and lhs.name:
+                bindings[lhs.name] = val
+            return True
+
+        # ── Comparisons ───────────────────────────────────
+        if functor in ('>', '<', '>=', '=<', '=:=', '=\\='):
+            a = self._eval_arith(args[0], bindings)
+            b = self._eval_arith(args[1], bindings)
+            if a is None or b is None:
+                return False
+            if functor == '>':   return a > b
+            if functor == '<':   return a < b
+            if functor == '>=':  return a >= b
+            if functor == '=<':  return a <= b
+            if functor == '=:=': return a == b
+            if functor == '=\\=': return a != b
+
+        # ── Findall ───────────────────────────────────────
+        if functor == 'findall':
+            template = args[0]
+            inner_goal = args[1]
+            bag_var = args[2]
+            # Query all matching facts for the inner goal
+            resolved_goal = self._resolve_term(inner_goal, bindings)
+            if isinstance(resolved_goal, list) and len(resolved_goal) >= 1:
+                pred = resolved_goal[0]
+                pattern = resolved_goal[1:]
+                # Replace Unbound with None for query
+                qpat = [None if isinstance(a, Unbound) else a for a in pattern]
+                facts = self.query(pred, qpat)
+                if isinstance(bag_var, Unbound) and bag_var.name:
+                    bindings[bag_var.name] = facts
+            return True
+
+        # ── Default: query goal ───────────────────────────
+        resolved = self._resolve_term(goal, bindings)
+        if isinstance(resolved, list) and len(resolved) >= 1:
+            pred = resolved[0]
+            pattern = resolved[1:]
+            # Build query pattern: bound values stay, unbound → None
+            qpat = []
+            for a in pattern:
+                if isinstance(a, Unbound):
+                    qpat.append(None)
+                else:
+                    qpat.append(a)
+            facts = self.query(pred, qpat)
+            if not facts:
+                return False
+            # Bind unbound variables from first matching fact
+            first = facts[0]
+            for i, a in enumerate(pattern):
+                if isinstance(a, Unbound) and a.name and i < len(first):
+                    bindings[a.name] = first[i]
+            return True
+        return False
+
+    def _resolve_term(self, term, bindings):
+        """Substitute bound variables in a term."""
+        if isinstance(term, Unbound) and term.name in bindings:
+            return bindings[term.name]
+        if isinstance(term, list):
+            return [self._resolve_term(x, bindings) for x in term]
+        return term
+
+    def _eval_arith(self, expr, bindings):
+        """Evaluate arithmetic expression with bindings."""
+        if isinstance(expr, Unbound):
+            if expr.name in bindings:
+                v = bindings[expr.name]
+                return v if isinstance(v, (int, float)) else None
+            return None
+        if isinstance(expr, (int, float)):
+            return expr
+        if isinstance(expr, str):
+            # QJSON bignum string — extract numeric value
+            if expr and expr[-1] in 'NnMmLl':
+                try:
+                    return float(expr[:-1])
+                except ValueError:
+                    pass
+            return None
+        if isinstance(expr, list) and len(expr) >= 2:
+            op = expr[0]
+            if op == '+' and len(expr) == 3:
+                a = self._eval_arith(expr[1], bindings)
+                b = self._eval_arith(expr[2], bindings)
+                return a + b if a is not None and b is not None else None
+            if op == '-' and len(expr) == 3:
+                a = self._eval_arith(expr[1], bindings)
+                b = self._eval_arith(expr[2], bindings)
+                return a - b if a is not None and b is not None else None
+            if op == '*' and len(expr) == 3:
+                a = self._eval_arith(expr[1], bindings)
+                b = self._eval_arith(expr[2], bindings)
+                return a * b if a is not None and b is not None else None
+            if op == '//' and len(expr) == 3:
+                a = self._eval_arith(expr[1], bindings)
+                b = self._eval_arith(expr[2], bindings)
+                return int(a // b) if a is not None and b is not None and b != 0 else None
+            if op == 'mod' and len(expr) == 3:
+                a = self._eval_arith(expr[1], bindings)
+                b = self._eval_arith(expr[2], bindings)
+                return a % b if a is not None and b is not None and b != 0 else None
+            if op == 'abs' and len(expr) == 2:
+                a = self._eval_arith(expr[1], bindings)
+                return abs(a) if a is not None else None
+            if op == '-' and len(expr) == 2:
+                a = self._eval_arith(expr[1], bindings)
+                return -a if a is not None else None
+        return None
+
     # ── React rules ───────────────────────────────────────────
 
     def add_react(self, event_pattern, handler):
-        """Register a react rule.
+        """Register a react rule (Python callback).
 
         event_pattern — string: 'assert', 'retract', or custom
         handler — fn(event_type, predicate, fact, db) called on match
-
-        React rules fire on assert/retract and ephemeral events.
-        They are engine-side (not stored in SQL).
         """
         self._react_rules.append({
             'pattern': event_pattern,
             'handler': handler
         })
 
+    def add_react_clause(self, event_pattern, body):
+        """Register a react rule as a clause (body goals executed on match).
+
+        event_pattern — match pattern (string for event type)
+        body — list of goals to execute when event fires
+
+        Body goals can include assert/retract/is/comparisons.
+        """
+        self._react_rules.append({
+            'pattern': event_pattern,
+            'handler': lambda et, pred, fact, db: db.execute_body(body, {
+                '_event_type': et, '_predicate': pred, '_fact': fact
+            }),
+            'body': body
+        })
+
     def _fire_react(self, event_type, predicate, fact):
-        """Fire matching react rules."""
+        """Fire matching react rules (Python callbacks + stored clauses)."""
+        # Python callbacks
         for rule in self._react_rules:
             if rule['pattern'] == event_type or rule['pattern'] == '*':
                 try:
                     rule['handler'](event_type, predicate, fact, self)
                 except Exception:
-                    pass  # react rules don't propagate errors
+                    pass
 
     # ── Ephemeral events ──────────────────────────────────────
 
