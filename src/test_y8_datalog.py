@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import sqlite3
 from y8_datalog import Y8Datalog
+from y8_loader import load_program
 from qjson import Unbound
 
 passed = 0
@@ -343,6 +344,73 @@ def test_resolve_ancestor():
     assert 'bob' in descendants, "alice ancestor of bob"
     assert 'carol' in descendants, "alice ancestor of carol"
     assert 'dave' in descendants, "alice ancestor of dave"
+
+# ── Prolog text loader ────────────────────────────────────────
+
+def test_load_facts():
+    db = fresh_db()
+    count = load_program(db, """
+        parent(alice, bob).
+        parent(bob, carol).
+    """)
+    assert count == 2
+    results = db.query('parent')
+    assert len(results) == 2
+
+def test_load_rule():
+    db = fresh_db()
+    load_program(db, """
+        parent(alice, bob).
+        parent(bob, carol).
+        parent(carol, dave).
+        grandparent(GP, GC) :- parent(GP, Y), parent(Y, GC).
+    """)
+    results = db.resolve('grandparent', [Unbound('GP'), Unbound('GC')])
+    gps = [(r['GP'], r['GC']) for r in results]
+    assert ('alice', 'carol') in gps
+    assert ('bob', 'dave') in gps
+
+def test_load_recursive():
+    db = fresh_db()
+    load_program(db, """
+        edge(a, b).
+        edge(b, c).
+        edge(c, d).
+        path(X, Y) :- edge(X, Y).
+        path(X, Y) :- edge(X, Z), path(Z, Y).
+    """)
+    results = db.resolve('path', ['a', Unbound('Y')])
+    targets = sorted([r['Y'] for r in results])
+    assert 'b' in targets
+    assert 'c' in targets
+    assert 'd' in targets
+
+def test_load_with_comments():
+    db = fresh_db()
+    count = load_program(db, """
+        % This is a comment
+        parent(alice, bob).  % inline comment
+        /* block comment */
+        parent(bob, carol).
+    """)
+    assert count == 2
+    results = db.query('parent')
+    assert len(results) == 2
+
+def test_load_numbers():
+    db = fresh_db()
+    load_program(db, """
+        price(btc, 67432).
+        price(eth, 3500).
+    """)
+    results = db.query('price', [None, None])
+    assert len(results) == 2
+
+test("load facts", test_load_facts)
+test("load rule", test_load_rule)
+test("load recursive", test_load_recursive)
+test("load with comments", test_load_with_comments)
+test("load numbers", test_load_numbers)
 
 test("resolve path (recursive)", test_resolve_path)
 test("resolve path filtered", test_resolve_path_filtered)
